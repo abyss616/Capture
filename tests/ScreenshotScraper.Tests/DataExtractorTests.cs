@@ -1,6 +1,7 @@
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Extraction;
 using ScreenshotScraper.Ocr;
+using Xunit;
 
 namespace ScreenshotScraper.Tests;
 

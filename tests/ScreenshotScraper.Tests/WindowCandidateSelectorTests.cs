@@ -1,5 +1,6 @@
 using ScreenshotScraper.Capture;
 using ScreenshotScraper.Core.Models;
+using Xunit;
 
 namespace ScreenshotScraper.Tests;
 

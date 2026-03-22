@@ -5,6 +5,7 @@ using ScreenshotScraper.Extraction;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
+using Xunit;
 
 namespace ScreenshotScraper.Tests;
 

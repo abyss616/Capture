@@ -83,7 +83,7 @@ public sealed class PokerTableScreenshotService : IScreenshotService
             CbSize = System.Runtime.InteropServices.Marshal.SizeOf<Win32NativeMethods.MonitorInfoEx>()
         };
 
-        return Win32NativeMethods.GetMonitorInfoW(monitor, ref monitorInfo)
+        return Win32NativeMethods.GetMonitorInfo(monitor, ref monitorInfo)
             ? monitorInfo.SzDevice
             : null;
     }

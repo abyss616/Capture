@@ -77,14 +77,14 @@ public sealed class WindowLocator : IWindowLocator
 
     private static string GetWindowTitle(nint handle)
     {
-        var length = Win32NativeMethods.GetWindowTextLengthW(handle);
+        var length = Win32NativeMethods.GetWindowTextLength(handle);
         if (length <= 0)
         {
             return string.Empty;
         }
 
         var builder = new StringBuilder(length + 1);
-        _ = Win32NativeMethods.GetWindowTextW(handle, builder, builder.Capacity);
+        _ = Win32NativeMethods.GetWindowText(handle, builder, builder.Capacity);
         return builder.ToString();
     }
 }

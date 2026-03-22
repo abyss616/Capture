@@ -3,8 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using ScreenshotScraper.App.Wpf.ViewModels;
 using ScreenshotScraper.Capture;
 using ScreenshotScraper.Core.Interfaces;
+using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Services;
+using ScreenshotScraper.Core.Services.HandHistory;
 using ScreenshotScraper.Extraction;
+using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
@@ -41,9 +44,11 @@ public partial class App : Application
         services.AddSingleton<IScreenshotService, PokerTableScreenshotService>();
         services.AddSingleton<IImagePreprocessor, ImagePreprocessor>();
         services.AddSingleton<IOcrEngine, DummyOcrEngine>();
+        services.AddSingleton<IPreHeroScreenshotParser, PreHeroScreenshotParser>();
         services.AddSingleton<IDataExtractor, DataExtractor>();
         services.AddSingleton<IXmlBuilder, XmlBuilder>();
         services.AddSingleton<IProcessingWorkflowService, ProcessingWorkflowService>();
+        services.AddSingleton<IPreHeroHandHistoryXmlWorkflow, PreHeroHandHistoryXmlWorkflow>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();

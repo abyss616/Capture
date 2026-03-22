@@ -6,16 +6,16 @@ using System.Text;
 using System.Windows.Media.Imaging;
 using ScreenshotScraper.App.Wpf.Helpers;
 using ScreenshotScraper.Core.Interfaces;
+using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
+using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.App.Wpf.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
-    private readonly IProcessingWorkflowService _processingWorkflowService;
     private readonly IScreenshotService _screenshotService;
-    private readonly IDataExtractor _dataExtractor;
-    private readonly IXmlBuilder _xmlBuilder;
+    private readonly IPreHeroHandHistoryXmlWorkflow _preHeroHandHistoryXmlWorkflow;
 
     private BitmapImage? _previewImage;
     private string _previewStatus = "No screenshot captured yet.";
@@ -25,15 +25,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private CapturedImage? _capturedImage;
 
     public MainViewModel(
-        IProcessingWorkflowService processingWorkflowService,
         IScreenshotService screenshotService,
-        IDataExtractor dataExtractor,
-        IXmlBuilder xmlBuilder)
+        IPreHeroHandHistoryXmlWorkflow preHeroHandHistoryXmlWorkflow)
     {
-        _processingWorkflowService = processingWorkflowService;
         _screenshotService = screenshotService;
-        _dataExtractor = dataExtractor;
-        _xmlBuilder = xmlBuilder;
+        _preHeroHandHistoryXmlWorkflow = preHeroHandHistoryXmlWorkflow;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -99,7 +95,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CaptureMetadata = BuildMetadataSummary(_capturedImage);
 
             ExtractedFields.Clear();
-            XmlContent = "Capture complete. Build XML remains available for later pipeline testing.";
+            XmlContent = "Capture complete. Generate XML to parse the current screenshot up to hero's first action.";
             StatusMessage = $"Captured {_capturedImage.WindowTitle ?? "window"} at {_capturedImage.CapturedAtUtc:O}.";
         }
         catch (Exception exception)
@@ -124,23 +120,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var workflowResult = await _processingWorkflowService.RunAsync(cancellationToken).ConfigureAwait(true);
+        var workflowResult = await _preHeroHandHistoryXmlWorkflow.RunAsync(_capturedImage, cancellationToken).ConfigureAwait(true);
         ApplyWorkflowResult(workflowResult);
-
-        if (workflowResult.XmlBuildResult is null)
-        {
-            var extractionResult = await _dataExtractor.ExtractAsync(_capturedImage, cancellationToken).ConfigureAwait(true);
-            var xmlBuildResult = await _xmlBuilder.BuildAsync(extractionResult, cancellationToken).ConfigureAwait(true);
-
-            ApplyExtractionResult(extractionResult);
-            XmlContent = xmlBuildResult.XmlContent;
-            StatusMessage = "XML built using fallback services.";
-        }
     }
 
-    private void ApplyWorkflowResult(ProcessingWorkflowResult workflowResult)
+    private void ApplyWorkflowResult(PreHeroHandHistoryXmlWorkflowResult workflowResult)
     {
-        _capturedImage = workflowResult.CapturedImage ?? _capturedImage;
+        _capturedImage = workflowResult.PreparedImage ?? _capturedImage;
 
         if (_capturedImage is not null)
         {
@@ -154,10 +140,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         XmlContent = workflowResult.XmlBuildResult?.XmlContent
-            ?? string.Join(Environment.NewLine, workflowResult.Errors);
+            ?? string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("XML generation did not return content."));
 
         StatusMessage = workflowResult.Success
-            ? "Workflow completed."
+            ? "Pre-hero XML generated from the current screenshot."
             : string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("Workflow completed with warnings."));
     }
 

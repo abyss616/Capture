@@ -1,7 +1,9 @@
 using ScreenshotScraper.Core.Interfaces;
+using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Services;
 using ScreenshotScraper.Extraction;
+using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
@@ -17,7 +19,7 @@ public sealed class ProcessingWorkflowServiceTests
         var service = new ProcessingWorkflowService(
             new StubScreenshotService(),
             new ImagePreprocessor(),
-            new DataExtractor(new DummyOcrEngine()),
+            new DataExtractor(new PreHeroScreenshotParser(new DummyOcrEngine())),
             new XmlBuilder());
 
         var result = await service.RunAsync();

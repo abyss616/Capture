@@ -36,7 +36,9 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
-        services.AddSingleton<IScreenshotService, ScreenshotService>();
+        services.AddSingleton(new PokerWindowCaptureOptions());
+        services.AddSingleton<IWindowLocator, WindowLocator>();
+        services.AddSingleton<IScreenshotService, PokerTableScreenshotService>();
         services.AddSingleton<IImagePreprocessor, ImagePreprocessor>();
         services.AddSingleton<IOcrEngine, DummyOcrEngine>();
         services.AddSingleton<IDataExtractor, DataExtractor>();

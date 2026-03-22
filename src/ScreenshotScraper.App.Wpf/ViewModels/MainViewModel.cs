@@ -1,9 +1,10 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Windows.Media.Imaging;
+using ScreenshotScraper.App.Wpf.Helpers;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
 
@@ -17,9 +18,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IXmlBuilder _xmlBuilder;
 
     private BitmapImage? _previewImage;
-    private string _previewStatus = "No screenshot captured yet. Placeholder preview will appear when image bytes are available.";
+    private string _previewStatus = "No screenshot captured yet.";
     private string _xmlContent = "Ready.";
-    private string _statusMessage = "Use Capture to create placeholder data, then Build XML to run the workflow.";
+    private string _statusMessage = "Capture a visible PokerClient table window to preview it.";
+    private string _captureMetadata = "No capture metadata available yet.";
     private CapturedImage? _capturedImage;
 
     public MainViewModel(
@@ -78,14 +80,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public string CaptureMetadata
+    {
+        get => _captureMetadata;
+        private set
+        {
+            _captureMetadata = value;
+            OnPropertyChanged();
+        }
+    }
+
     public async Task CaptureAsync(CancellationToken cancellationToken = default)
     {
-        _capturedImage = await _screenshotService.CaptureAsync(cancellationToken).ConfigureAwait(true);
-        SetPreview(_capturedImage);
+        try
+        {
+            _capturedImage = await _screenshotService.CaptureAsync(cancellationToken).ConfigureAwait(true);
+            SetPreview(_capturedImage);
+            CaptureMetadata = BuildMetadataSummary(_capturedImage);
 
-        ExtractedFields.Clear();
-        XmlContent = "Capture complete. Build XML to run extraction and XML generation.";
-        StatusMessage = _capturedImage.SourceDescription ?? "Capture completed.";
+            ExtractedFields.Clear();
+            XmlContent = "Capture complete. Build XML remains available for later pipeline testing.";
+            StatusMessage = $"Captured {_capturedImage.WindowTitle ?? "window"} at {_capturedImage.CapturedAtUtc:O}.";
+        }
+        catch (Exception exception)
+        {
+            PreviewImage = null;
+            PreviewStatus = "Capture failed.";
+            CaptureMetadata = exception.Message;
+            StatusMessage = $"Capture failed: {exception.Message}";
+        }
     }
 
     public async Task BuildXmlAsync(CancellationToken cancellationToken = default)
@@ -122,6 +145,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (_capturedImage is not null)
         {
             SetPreview(_capturedImage);
+            CaptureMetadata = BuildMetadataSummary(_capturedImage);
         }
 
         if (workflowResult.ExtractionResult is not null)
@@ -133,8 +157,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ?? string.Join(Environment.NewLine, workflowResult.Errors);
 
         StatusMessage = workflowResult.Success
-            ? "Workflow completed with placeholder services."
-            : string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("Workflow completed with placeholder warnings."));
+            ? "Workflow completed."
+            : string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("Workflow completed with warnings."));
     }
 
     private void ApplyExtractionResult(ExtractionResult extractionResult)
@@ -149,22 +173,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void SetPreview(CapturedImage capturedImage)
     {
-        if (capturedImage.ImageBytes is { Length: > 0 })
-        {
-            using var stream = new MemoryStream(capturedImage.ImageBytes);
-            var bitmapImage = new BitmapImage();
-            bitmapImage.BeginInit();
-            bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
-            bitmapImage.StreamSource = stream;
-            bitmapImage.EndInit();
-            bitmapImage.Freeze();
-            PreviewImage = bitmapImage;
-            PreviewStatus = $"Captured {capturedImage.Width}x{capturedImage.Height} image from {capturedImage.SourceDescription}.";
-            return;
-        }
+        PreviewImage = BitmapImageFactory.Create(capturedImage.ImageBytes);
 
-        PreviewImage = null;
-        PreviewStatus = capturedImage.SourceDescription ?? "No preview image bytes available yet.";
+        PreviewStatus = PreviewImage is null
+            ? capturedImage.SourceDescription ?? "No preview image bytes available."
+            : $"Captured {capturedImage.Width}x{capturedImage.Height} image from {capturedImage.SourceDescription}.";
+    }
+
+    private static string BuildMetadataSummary(CapturedImage capturedImage)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Window Title: {capturedImage.WindowTitle ?? "(none)"}");
+        builder.AppendLine($"Process Name: {capturedImage.ProcessName ?? "(unknown)"}");
+        builder.AppendLine($"Captured At (UTC): {capturedImage.CapturedAtUtc:O}");
+        builder.AppendLine($"Image Size: {capturedImage.Width} x {capturedImage.Height}");
+        builder.AppendLine($"Window Bounds: Left={capturedImage.WindowLeft}, Top={capturedImage.WindowTop}, Width={capturedImage.WindowWidth}, Height={capturedImage.WindowHeight}");
+        builder.AppendLine($"Foreground: {capturedImage.IsForegroundWindow}");
+        builder.AppendLine($"Visible: {capturedImage.IsVisible}");
+        builder.AppendLine($"Handle: 0x{capturedImage.WindowHandle.ToInt64():X}");
+        builder.AppendLine($"Capture Method: {capturedImage.CaptureMethod ?? "(unknown)"}");
+        builder.AppendLine($"Monitor: {capturedImage.MonitorDeviceName ?? "(unknown)"}");
+        builder.Append($"Source: {capturedImage.SourceDescription ?? "(unknown)"}");
+        return builder.ToString();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

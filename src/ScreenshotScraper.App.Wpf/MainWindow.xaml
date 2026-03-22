@@ -5,17 +5,19 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="ScreenshotScraper"
-        Height="650"
-        Width="1100"
-        MinHeight="500"
-        MinWidth="900">
+        Height="760"
+        Width="1200"
+        MinHeight="600"
+        MinWidth="960">
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="16" />
+            <RowDefinition Height="2*" />
+            <RowDefinition Height="16" />
             <RowDefinition Height="*" />
             <RowDefinition Height="16" />
-            <RowDefinition Height="2*" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <StackPanel Orientation="Horizontal">
@@ -32,14 +34,17 @@
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="16" />
                 <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="2*" />
             </Grid.ColumnDefinitions>
 
             <GroupBox Header="Preview">
                 <Grid>
-                    <Border BorderBrush="#D0D0D0" BorderThickness="1" Background="#FAFAFA" Padding="8">
+                    <Border BorderBrush="#D0D0D0"
+                            BorderThickness="1"
+                            Background="#FAFAFA"
+                            Padding="8">
                         <Grid>
                             <Image Source="{Binding PreviewImage}"
                                    Stretch="Uniform"
@@ -58,30 +63,40 @@
                 </Grid>
             </GroupBox>
 
-            <GroupBox Grid.Column="2" Header="Extracted Fields">
+            <GroupBox Grid.Column="2" Header="Capture Metadata">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top"
                                Margin="0,0,0,8"
                                Text="{Binding StatusMessage}"
                                FontWeight="SemiBold"
                                TextWrapping="Wrap" />
-                    <DataGrid ItemsSource="{Binding ExtractedFields}"
-                              AutoGenerateColumns="False"
-                              HeadersVisibility="Column"
-                              IsReadOnly="True">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
-                            <DataGridTextColumn Header="Raw Text" Binding="{Binding RawText}" Width="2*" />
-                            <DataGridTextColumn Header="Parsed Value" Binding="{Binding ParsedValue}" Width="2*" />
-                            <DataGridCheckBoxColumn Header="Valid" Binding="{Binding IsValid}" Width="Auto" />
-                            <DataGridTextColumn Header="Error" Binding="{Binding Error}" Width="2*" />
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <TextBox Text="{Binding CaptureMetadata}"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             TextWrapping="Wrap"
+                             FontFamily="Consolas" />
                 </DockPanel>
             </GroupBox>
         </Grid>
 
-        <GroupBox Grid.Row="4" Header="XML / Status">
+        <GroupBox Grid.Row="4" Header="Extracted Fields">
+            <DataGrid ItemsSource="{Binding ExtractedFields}"
+                      AutoGenerateColumns="False"
+                      HeadersVisibility="Column"
+                      IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+                    <DataGridTextColumn Header="Raw Text" Binding="{Binding RawText}" Width="2*" />
+                    <DataGridTextColumn Header="Parsed Value" Binding="{Binding ParsedValue}" Width="2*" />
+                    <DataGridCheckBoxColumn Header="Valid" Binding="{Binding IsValid}" Width="Auto" />
+                    <DataGridTextColumn Header="Error" Binding="{Binding Error}" Width="2*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <GroupBox Grid.Row="6" Header="XML / Status">
             <TextBox Text="{Binding XmlContent}"
                      IsReadOnly="True"
                      AcceptsReturn="True"

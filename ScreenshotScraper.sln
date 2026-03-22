@@ -2,9 +2,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") = "src", "src", "{95DB4BE2-9C16-4508-BC81-89CEB06EBB13}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{95DB4BE2-9C16-4508-BC81-89CEB06EBB13}"
 EndProject
-Project("{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") = "tests", "tests", "{6677A470-A6A5-4272-9B83-104366659C62}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{6677A470-A6A5-4272-9B83-104366659C62}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenshotScraper.App.Wpf", "src\ScreenshotScraper.App.Wpf\ScreenshotScraper.App.Wpf.csproj", "{43DB51AF-33E3-419F-8C0F-B60FD41B7FA4}"
 EndProject

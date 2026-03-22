@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenshotScraper.Core\ScreenshotScraper.Core.csproj" />
+    <ProjectReference Include="..\ScreenshotScraper.Ocr\ScreenshotScraper.Ocr.csproj" />
+    <ProjectReference Include="..\ScreenshotScraper.Imaging\ScreenshotScraper.Imaging.csproj" />
+  </ItemGroup>
+</Project>

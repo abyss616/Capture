@@ -1,4 +1,5 @@
-using ScreenshotScraper.Capture;
+using ScreenshotScraper.Core.Interfaces;
+using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Services;
 using ScreenshotScraper.Extraction;
 using ScreenshotScraper.Imaging;
@@ -13,7 +14,7 @@ public sealed class ProcessingWorkflowServiceTests
     public async Task RunAsync_ReturnsResultWithoutThrowing()
     {
         var service = new ProcessingWorkflowService(
-            new ScreenshotService(),
+            new StubScreenshotService(),
             new ImagePreprocessor(),
             new DataExtractor(new DummyOcrEngine()),
             new XmlBuilder());
@@ -24,5 +25,21 @@ public sealed class ProcessingWorkflowServiceTests
         Assert.NotNull(result.CapturedImage);
         Assert.NotNull(result.ExtractionResult);
         Assert.NotNull(result.XmlBuildResult);
+    }
+
+    private sealed class StubScreenshotService : IScreenshotService
+    {
+        public Task<CapturedImage> CaptureAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CapturedImage
+            {
+                ImageBytes = [],
+                Width = 640,
+                Height = 480,
+                SourceDescription = "Test capture",
+                ProcessName = "PokerClient",
+                WindowTitle = "Practice Table"
+            });
+        }
     }
 }

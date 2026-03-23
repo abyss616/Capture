@@ -1,14 +1,16 @@
-using System.Globalization;
-using System.Text;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
+using System.Globalization;
+
 
 #if WINDOWS
 using System.Runtime.Versioning;
+using System.Text;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
 using Windows.Storage.Streams;
+using Windows.System.UserProfile;
 #endif
 
 namespace ScreenshotScraper.Ocr;

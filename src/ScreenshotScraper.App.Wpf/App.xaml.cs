@@ -1,4 +1,3 @@
-using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using ScreenshotScraper.App.Wpf.ViewModels;
 using ScreenshotScraper.Capture;
@@ -11,6 +10,7 @@ using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
+using System.Windows;
 
 namespace ScreenshotScraper.App.Wpf;
 

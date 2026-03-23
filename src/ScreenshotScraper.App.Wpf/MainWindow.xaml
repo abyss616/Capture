@@ -70,7 +70,7 @@
                                Text="{Binding StatusMessage}"
                                FontWeight="SemiBold"
                                TextWrapping="Wrap" />
-                    <TextBox Text="{Binding CaptureMetadata}"
+                    <TextBox Text="{Binding CaptureMetadata, Mode=OneWay}"
                              IsReadOnly="True"
                              AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto"
@@ -97,7 +97,7 @@
         </GroupBox>
 
         <GroupBox Grid.Row="6" Header="XML / Status">
-            <TextBox Text="{Binding XmlContent}"
+            <TextBox Text="{Binding XmlContent, Mode=OneWay}"
                      IsReadOnly="True"
                      AcceptsReturn="True"
                      VerticalScrollBarVisibility="Auto"

@@ -2,7 +2,7 @@ using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal interface IPreHeroActionInferencer
+public interface IPreHeroActionInferencer
 {
     (IReadOnlyList<SnapshotAction> Round0Actions, IReadOnlyList<SnapshotAction> Round1Actions) Infer(IReadOnlyList<SnapshotPlayer> players);
 }

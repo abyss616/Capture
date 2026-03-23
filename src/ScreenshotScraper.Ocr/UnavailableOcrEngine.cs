@@ -4,13 +4,13 @@ using ScreenshotScraper.Core.Models;
 namespace ScreenshotScraper.Ocr;
 
 /// <summary>
-/// Dummy OCR engine used until a real OCR provider is integrated.
+/// Transparent fallback used when no concrete OCR provider package is available in the repository.
 /// </summary>
-public sealed class DummyOcrEngine : IOcrEngine
+public sealed class UnavailableOcrEngine : IOcrEngine
 {
     public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult("OCR_NOT_IMPLEMENTED");
+        throw new OcrEngineUnavailableException();
     }
 }

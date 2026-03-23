@@ -4,11 +4,11 @@ using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtractor
+public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtractor
 {
     public IReadOnlyList<SnapshotPlayer> Extract(CapturedImage image, string rawText)
     {
-        var players = CreateDefaultPlayers();
+        var seatTemplates = CreateSeatTemplates();
         var entries = SeatEntryRegex().Matches(rawText ?? string.Empty)
             .Cast<Match>()
             .Where(match => match.Success)
@@ -19,18 +19,20 @@ internal sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotEx
                 Bet = NormalizeNumber(match.Groups["bet"].Value),
                 IsFolded = FoldRegex().IsMatch(match.Value)
             })
-            .Take(players.Count)
+            .Take(seatTemplates.Count)
             .ToList();
+
+        var players = new List<SnapshotPlayer>(entries.Count);
 
         for (var index = 0; index < entries.Count; index++)
         {
-            var current = players[index];
+            var seatTemplate = seatTemplates[index];
             var entry = entries[index];
-            players[index] = new SnapshotPlayer
+            players.Add(new SnapshotPlayer
             {
-                Seat = current.Seat,
-                IsHero = current.IsHero,
-                Dealer = current.Dealer,
+                Seat = seatTemplate.Seat,
+                IsHero = seatTemplate.IsHero,
+                Dealer = seatTemplate.Dealer,
                 Name = entry.Name,
                 Chips = entry.Chips,
                 Bet = entry.Bet,
@@ -39,16 +41,16 @@ internal sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotEx
                 Cashout = string.Empty,
                 CashoutFee = string.Empty,
                 RakeAmount = string.Empty,
-                Position = current.Position,
+                Position = seatTemplate.Position,
                 AppearsFolded = entry.IsFolded,
-                HasVisibleCards = current.HasVisibleCards
-            };
+                HasVisibleCards = seatTemplate.HasVisibleCards
+            });
         }
 
         return players;
     }
 
-    private static List<SnapshotPlayer> CreateDefaultPlayers()
+    private static List<SnapshotPlayer> CreateSeatTemplates()
     {
         return
         [

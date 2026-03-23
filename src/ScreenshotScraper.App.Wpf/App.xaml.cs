@@ -43,7 +43,12 @@ public partial class App : Application
         services.AddSingleton<IWindowLocator, WindowLocator>();
         services.AddSingleton<IScreenshotService, PokerTableScreenshotService>();
         services.AddSingleton<IImagePreprocessor, ImagePreprocessor>();
-        services.AddSingleton<IOcrEngine, DummyOcrEngine>();
+        services.AddSingleton<IOcrEngine, UnavailableOcrEngine>();
+        services.AddSingleton<ITableHeaderExtractor, OcrTableHeaderExtractor>();
+        services.AddSingleton<ISeatSnapshotExtractor, FixedLayoutSeatSnapshotExtractor>();
+        services.AddSingleton<ICardExtractor, OcrHeroCardExtractor>();
+        services.AddSingleton<IDealerButtonExtractor, HeuristicDealerButtonExtractor>();
+        services.AddSingleton<IPreHeroActionInferencer, PreHeroActionInferencer>();
         services.AddSingleton<IPreHeroScreenshotParser, PreHeroScreenshotParser>();
         services.AddSingleton<IDataExtractor, DataExtractor>();
         services.AddSingleton<IXmlBuilder, XmlBuilder>();

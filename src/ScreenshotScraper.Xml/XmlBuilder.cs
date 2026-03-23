@@ -64,12 +64,11 @@ public sealed class XmlBuilder : IXmlBuilder
             new XAttribute("name", player.Name),
             new XAttribute("chips", player.Chips ?? string.Empty),
             new XAttribute("dealer", player.Dealer ? "1" : "0"),
-            new XAttribute("win", player.Win ?? string.Empty),
             new XAttribute("bet", player.Bet ?? string.Empty),
-            new XAttribute("muck", player.Muck ?? string.Empty),
-            new XAttribute("cashout", player.Cashout ?? string.Empty),
-            new XAttribute("cashout_fee", player.CashoutFee ?? string.Empty),
-            new XAttribute("rakeamount", player.RakeAmount ?? string.Empty));
+            new XAttribute("position", player.Position ?? string.Empty),
+            new XAttribute("hero", player.IsHero ? "1" : "0"),
+            new XAttribute("visiblecards", player.HasVisibleCards ? "1" : "0"),
+            new XAttribute("folded", player.AppearsFolded ? "1" : "0"));
     }
 
     private static XElement BuildActionElement(SnapshotAction action)

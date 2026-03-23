@@ -9,7 +9,7 @@ namespace ScreenshotScraper.Tests;
 public sealed class XmlBuilderTests
 {
     [Fact]
-    public async Task BuildAsync_ReturnsOriginalHandHistoryShapeWithoutExtraTags()
+    public async Task BuildAsync_ReturnsPokerSpecificHandHistoryShape()
     {
         var builder = new XmlBuilder();
         var extractionResult = new ExtractionResult
@@ -21,10 +21,10 @@ public sealed class XmlBuilderTests
                 StartDate = new DateTime(2026, 3, 22, 17, 6, 28),
                 Players =
                 [
-                    new SnapshotPlayer { Seat = 1, Name = "Hero", Chips = "97", Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, IsHero = true },
-                    new SnapshotPlayer { Seat = 2, Name = "Button", Chips = "238.50", Dealer = true, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, IsHero = false },
-                    new SnapshotPlayer { Seat = 3, Name = "SmallBlind", Chips = "98.50", Dealer = false, Bet = "0.50", Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, IsHero = false },
-                    new SnapshotPlayer { Seat = 4, Name = "BigBlind", Chips = "223.50", Dealer = false, Bet = "1", Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, IsHero = false }
+                    new SnapshotPlayer { Seat = 1, Name = "Hero", Chips = "97", Dealer = false, Bet = string.Empty, Position = "CO", IsHero = true, HasVisibleCards = true, AppearsFolded = false },
+                    new SnapshotPlayer { Seat = 2, Name = "Button", Chips = "238.50", Dealer = true, Bet = string.Empty, Position = "BTN", IsHero = false, HasVisibleCards = false, AppearsFolded = false },
+                    new SnapshotPlayer { Seat = 3, Name = "SmallBlind", Chips = "98.50", Dealer = false, Bet = "0.50", Position = "SB", IsHero = false, HasVisibleCards = false, AppearsFolded = false },
+                    new SnapshotPlayer { Seat = 4, Name = "BigBlind", Chips = "223.50", Dealer = false, Bet = "1", Position = "BB", IsHero = false, HasVisibleCards = false, AppearsFolded = false }
                 ],
                 Round0Actions =
                 [
@@ -55,6 +55,9 @@ public sealed class XmlBuilderTests
         Assert.Equal(2, document.Root?.Elements("round").Count());
         Assert.Equal("0", document.Root?.Elements("round").First().Attribute("no")?.Value);
         Assert.Equal("1", document.Root?.Elements("round").Skip(1).First().Attribute("no")?.Value);
+        Assert.Equal("1", document.Root?.Element("general")?.Element("players")?.Elements("player").First().Attribute("hero")?.Value);
+        Assert.Equal("CO", document.Root?.Element("general")?.Element("players")?.Elements("player").First().Attribute("position")?.Value);
+        Assert.DoesNotContain(document.Descendants().Attributes(), attribute => attribute.Name.LocalName is "cashout" or "cashout_fee" or "rakeamount" or "win" or "muck");
         Assert.Empty(document.Descendants().Where(element => element.Name.LocalName is "pendingAction" or "heroDecision" or "metadata" or "confidence" or "snapshot"));
     }
 }

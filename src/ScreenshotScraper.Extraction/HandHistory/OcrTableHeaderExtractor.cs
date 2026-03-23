@@ -4,7 +4,7 @@ using ScreenshotScraper.Core.Models;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal sealed partial class OcrTableHeaderExtractor : ITableHeaderExtractor
+public sealed partial class OcrTableHeaderExtractor : ITableHeaderExtractor
 {
     public TableHeaderSnapshot Extract(CapturedImage image, string rawText)
     {

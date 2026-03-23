@@ -3,7 +3,7 @@ using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal interface IDealerButtonExtractor
+public interface IDealerButtonExtractor
 {
     int? DetectDealerSeat(CapturedImage image, string rawText, IReadOnlyList<SnapshotPlayer> players);
 }

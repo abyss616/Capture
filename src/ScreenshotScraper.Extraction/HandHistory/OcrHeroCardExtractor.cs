@@ -2,7 +2,7 @@ using ScreenshotScraper.Core.Models;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal sealed class OcrHeroCardExtractor : ICardExtractor
+public sealed class OcrHeroCardExtractor : ICardExtractor
 {
     public string ExtractHeroCards(CapturedImage image, string rawText)
     {

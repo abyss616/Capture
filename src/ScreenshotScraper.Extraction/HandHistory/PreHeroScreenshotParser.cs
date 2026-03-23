@@ -14,18 +14,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
     private readonly IDealerButtonExtractor _dealerButtonExtractor;
     private readonly IPreHeroActionInferencer _preHeroActionInferencer;
 
-    public PreHeroScreenshotParser(IOcrEngine ocrEngine)
-        : this(
-            ocrEngine,
-            new OcrTableHeaderExtractor(),
-            new FixedLayoutSeatSnapshotExtractor(),
-            new OcrHeroCardExtractor(),
-            new HeuristicDealerButtonExtractor(),
-            new PreHeroActionInferencer())
-    {
-    }
-
-    internal PreHeroScreenshotParser(
+    public PreHeroScreenshotParser(
         IOcrEngine ocrEngine,
         ITableHeaderExtractor tableHeaderExtractor,
         ISeatSnapshotExtractor seatSnapshotExtractor,

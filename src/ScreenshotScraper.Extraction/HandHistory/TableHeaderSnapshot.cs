@@ -1,6 +1,6 @@
 namespace ScreenshotScraper.Extraction.HandHistory;
 
-internal sealed class TableHeaderSnapshot
+public sealed class TableHeaderSnapshot
 {
     public string? GameCode { get; init; }
 

@@ -11,4 +11,8 @@ public sealed class ExtractedField
     public bool IsValid { get; init; }
 
     public string? Error { get; init; }
+
+    public double Confidence { get; init; }
+
+    public string? Reason { get; init; }
 }

@@ -1,3 +1,5 @@
+using ScreenshotScraper.Core.Models;
+
 namespace ScreenshotScraper.Core.Models.HandHistory;
 
 public sealed class PartialHandHistorySnapshot
@@ -13,4 +15,12 @@ public sealed class PartialHandHistorySnapshot
     public List<SnapshotPocketCards> Round1PocketCards { get; init; } = [];
 
     public List<SnapshotAction> Round1ObservedActions { get; init; } = [];
+
+    public ExtractedField? GameCodeField { get; init; }
+
+    public ExtractedField? HeroNameField { get; init; }
+
+    public ExtractedField? DealerSeatField { get; init; }
+
+    public ExtractedField? HeroPositionField { get; init; }
 }

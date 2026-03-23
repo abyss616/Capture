@@ -91,6 +91,8 @@
                     <DataGridTextColumn Header="Raw Text" Binding="{Binding RawText}" Width="2*" />
                     <DataGridTextColumn Header="Parsed Value" Binding="{Binding ParsedValue}" Width="2*" />
                     <DataGridCheckBoxColumn Header="Valid" Binding="{Binding IsValid}" Width="Auto" />
+                    <DataGridTextColumn Header="Confidence" Binding="{Binding Confidence, StringFormat={}{0:P0}}" Width="Auto" />
+                    <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="2*" />
                     <DataGridTextColumn Header="Error" Binding="{Binding Error}" Width="2*" />
                 </DataGrid.Columns>
             </DataGrid>

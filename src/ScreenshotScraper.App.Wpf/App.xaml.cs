@@ -43,7 +43,7 @@ public partial class App : Application
         services.AddSingleton<IWindowLocator, WindowLocator>();
         services.AddSingleton<IScreenshotService, PokerTableScreenshotService>();
         services.AddSingleton<IImagePreprocessor, ImagePreprocessor>();
-        services.AddSingleton<IOcrEngine, UnavailableOcrEngine>();
+        services.AddSingleton<IOcrEngine, WindowsOcrEngine>();
         services.AddSingleton<ITableHeaderExtractor, OcrTableHeaderExtractor>();
         services.AddSingleton<ISeatSnapshotExtractor, FixedLayoutSeatSnapshotExtractor>();
         services.AddSingleton<ICardExtractor, OcrHeroCardExtractor>();

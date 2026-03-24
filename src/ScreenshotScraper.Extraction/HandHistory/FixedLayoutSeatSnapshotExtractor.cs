@@ -15,7 +15,7 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
             return seatBlocks
                 .OrderBy(pair => pair.Key)
                 .Select(pair => BuildSeatSnapshot(seatTemplates[pair.Key], pair.Value))
-                .Where(player => !string.IsNullOrWhiteSpace(player.Name))
+                .Where(IsOccupiedSeat)
                 .ToList();
         }
 
@@ -57,6 +57,14 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
         }
 
         return players;
+    }
+
+    private static bool IsOccupiedSeat(SnapshotPlayer player)
+    {
+        return !string.IsNullOrWhiteSpace(player.Name)
+            || !string.IsNullOrWhiteSpace(player.Chips)
+            || !string.IsNullOrWhiteSpace(player.Bet)
+            || player.IsHero;
     }
 
     private static Dictionary<int, string> ParseSeatBlocks(string? rawText)

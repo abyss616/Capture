@@ -2,11 +2,16 @@ using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
 public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
 {
+    private const int HeroSeatIndex = 1;
+    private const string GenericHeroName = "GenericHeroName";
+
     private readonly IOcrEngine _ocrEngine;
     private readonly ITableHeaderExtractor _tableHeaderExtractor;
     private readonly ISeatSnapshotExtractor _seatSnapshotExtractor;
@@ -37,14 +42,17 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var rawText = await _ocrEngine.ReadTextAsync(image, cancellationToken).ConfigureAwait(false);
         var header = _tableHeaderExtractor.Extract(image, rawText);
         var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
-        var heroCards = _cardExtractor.ExtractHeroCards(image, rawText);
+        var heroCardRegionImage = CropHeroCardRegion(image);
+        var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
+        var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
+        var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var dealerSeatField = _dealerButtonExtractor.DetectDealerSeat(image, rawText, basePlayers);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
-        var players = ApplyDealerAndHeroCards(basePlayers, dealerSeat, heroCards);
+        var players = ApplyDealerAndHeroCards(basePlayers, dealerSeat, heroSeat, heroCards);
         players = SixMaxPositionMapper.AssignPositions(players).ToList();
         var hero = players.FirstOrDefault(player => player.IsHero);
-        var heroNameField = BuildHeroNameField(hero);
+        var heroNameField = BuildHeroNameField(hero, heroSeat.HasValue);
         var heroPositionField = BuildHeroPositionField(hero, dealerSeatField);
         var actions = _preHeroActionInferencer.Infer(players);
 
@@ -63,19 +71,23 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         };
     }
 
-    private static ExtractedField BuildHeroNameField(SnapshotPlayer? hero)
+    private static ExtractedField BuildHeroNameField(SnapshotPlayer? hero, bool heroSeatDetected)
     {
+        var usedFallback = heroSeatDetected && string.Equals(hero?.Name, GenericHeroName, StringComparison.Ordinal);
+
         return new ExtractedField
         {
             Name = "HeroName",
             RawText = hero?.Name,
             ParsedValue = hero?.Name,
-            IsValid = !string.IsNullOrWhiteSpace(hero?.Name),
-            Error = string.IsNullOrWhiteSpace(hero?.Name) ? "Hero name not confidently extracted." : null,
-            Confidence = string.IsNullOrWhiteSpace(hero?.Name) ? 0 : 1.0,
-            Reason = string.IsNullOrWhiteSpace(hero?.Name)
-                ? "The bottom-center hero seat did not yield a usable player name."
-                : "Hero name was read from the bottom-center seat region (seat 1)."
+            IsValid = heroSeatDetected,
+            Error = heroSeatDetected ? null : "Hero seat was not confidently detected.",
+            Confidence = heroSeatDetected ? (usedFallback ? 0.7 : 1.0) : 0,
+            Reason = !heroSeatDetected
+                ? "Hero seat could not be reliably identified from visible hero cards."
+                : usedFallback
+                    ? "Hero seat was identified from visible hero cards (seat 1), but hero name OCR was missing/invalid; fallback GenericHeroName was used."
+                    : "Hero seat was identified from visible hero cards (seat 1), and hero name was read from the seat region."
         };
     }
 
@@ -115,20 +127,25 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             .Select(player => new SnapshotPocketCards
             {
                 Player = player.Name,
-                Cards = player.IsHero
+                Cards = player.IsHero && !string.IsNullOrWhiteSpace(heroCards)
                     ? heroCards
                     : "X X"
             })
             .ToList();
     }
 
-    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, string heroCards)
+    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, string heroCards)
     {
+        var occupiedPlayers = players
+            .Where(player => !string.IsNullOrWhiteSpace(player.Name) || player.Seat == heroSeat)
+            .ToList();
+
         return players
+            .Where(player => occupiedPlayers.Any(occupied => occupied.Seat == player.Seat))
             .Select(player => new SnapshotPlayer
             {
                 Seat = player.Seat,
-                Name = player.Name,
+                Name = ResolvePlayerName(player, heroSeat),
                 Chips = player.Chips,
                 Dealer = dealerSeat.HasValue && player.Seat == dealerSeat.Value,
                 Bet = player.Bet,
@@ -138,10 +155,115 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 CashoutFee = player.CashoutFee,
                 RakeAmount = player.RakeAmount,
                 Position = player.Position,
-                IsHero = player.IsHero,
+                IsHero = heroSeat.HasValue && player.Seat == heroSeat.Value,
                 AppearsFolded = player.AppearsFolded,
-                HasVisibleCards = player.IsHero && !string.IsNullOrWhiteSpace(heroCards)
+                HasVisibleCards = heroSeat.HasValue && player.Seat == heroSeat.Value && !string.IsNullOrWhiteSpace(heroCards)
             })
             .ToList();
+    }
+
+    private static string ResolvePlayerName(SnapshotPlayer player, int? heroSeat)
+    {
+        if (!heroSeat.HasValue || player.Seat != heroSeat.Value)
+        {
+            return player.Name;
+        }
+
+        return IsReliableHeroName(player.Name)
+            ? player.Name
+            : GenericHeroName;
+    }
+
+    private static bool IsReliableHeroName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var trimmed = name.Trim();
+        return trimmed.Any(char.IsLetter);
+    }
+
+    private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string heroCards)
+    {
+        if (string.IsNullOrWhiteSpace(heroCards))
+        {
+            return null;
+        }
+
+        return players.Any(player => player.Seat == HeroSeatIndex)
+            ? HeroSeatIndex
+            : null;
+    }
+
+    private async Task<string> ReadHeroCardRegionTextAsync(CapturedImage heroCardRegionImage, CancellationToken cancellationToken)
+    {
+        if (heroCardRegionImage.ImageBytes.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return await _ocrEngine.ReadTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static CapturedImage CropHeroCardRegion(CapturedImage image)
+    {
+        if (image.ImageBytes.Length == 0)
+        {
+            return new CapturedImage();
+        }
+
+        try
+        {
+            using var sourceStream = new MemoryStream(image.ImageBytes);
+            using var sourceBitmap = new Bitmap(sourceStream);
+
+            var width = sourceBitmap.Width;
+            var height = sourceBitmap.Height;
+            if (width == 0 || height == 0)
+            {
+                return new CapturedImage();
+            }
+
+            var crop = new Rectangle(
+                x: (int)(width * 0.36),
+                y: (int)(height * 0.58),
+                width: Math.Max(1, (int)(width * 0.28)),
+                height: Math.Max(1, (int)(height * 0.30)));
+            crop.Intersect(new Rectangle(0, 0, width, height));
+            if (crop.Width == 0 || crop.Height == 0)
+            {
+                return new CapturedImage();
+            }
+
+            using var croppedBitmap = sourceBitmap.Clone(crop, sourceBitmap.PixelFormat);
+            using var targetStream = new MemoryStream();
+            croppedBitmap.Save(targetStream, ImageFormat.Png);
+
+            return new CapturedImage
+            {
+                ImageBytes = targetStream.ToArray(),
+                Width = croppedBitmap.Width,
+                Height = croppedBitmap.Height,
+                CapturedAtUtc = image.CapturedAtUtc,
+                SourceDescription = $"{image.SourceDescription}|HeroCardsRegion",
+                WindowTitle = image.WindowTitle,
+                ProcessName = image.ProcessName,
+                WindowLeft = image.WindowLeft + crop.Left,
+                WindowTop = image.WindowTop + crop.Top,
+                WindowWidth = crop.Width,
+                WindowHeight = crop.Height,
+                IsVisible = image.IsVisible,
+                IsForegroundWindow = image.IsForegroundWindow,
+                WindowHandle = image.WindowHandle,
+                CaptureMethod = image.CaptureMethod,
+                MonitorDeviceName = image.MonitorDeviceName
+            };
+        }
+        catch
+        {
+            return new CapturedImage();
+        }
     }
 }

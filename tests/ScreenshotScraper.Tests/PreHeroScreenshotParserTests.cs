@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Extraction.HandHistory;
@@ -18,10 +20,10 @@ public sealed class PreHeroScreenshotParserTests
             [Seat 3] BigBlind 100 BB 1 BB
             [Seat 4] UnderGun 101 BB FOLD
             [Seat 5] Hijack 145 BB
-            Q♠ K♣
-            """);
+            """,
+            "Q♠ K♣");
 
-        var snapshot = await parser.ParseAsync(new CapturedImage { WindowTitle = "Gerekek 817752987 | NL Hold'em | €0.01/€0.02" });
+        var snapshot = await parser.ParseAsync(CreatePngImage());
         var hero = Assert.Single(snapshot.Players.Where(player => player.IsHero));
 
         Assert.Equal("HeroBottom", hero.Name);
@@ -29,35 +31,84 @@ public sealed class PreHeroScreenshotParserTests
         Assert.True(snapshot.HeroPositionField?.IsValid);
         Assert.Equal("CO", snapshot.HeroPositionField?.ParsedValue);
         Assert.Equal("6", snapshot.DealerSeatField?.ParsedValue);
+        Assert.True(hero.HasVisibleCards);
+        Assert.Equal("SQ CK", snapshot.Round1PocketCards.Single(cards => cards.Player == "HeroBottom").Cards);
     }
 
     [Fact]
-    public async Task ParseAsync_ReturnsLowConfidenceHeroPositionWhenDealerIsMissing()
+    public async Task ParseAsync_UsesGenericHeroNameWhenHeroNameIsMissingOrInvalid()
+    {
+        var parser = CreateParser(
+            """
+            [Seat 1] 994 98.50 BB 0.50 BB
+            [Seat 2] VillainTwo 100 BB 1 BB
+            [Seat 3] VillainThree 110 BB
+            [Seat 4] VillainFour 120 BB
+            [Seat 5] VillainFive 130 BB
+            [Seat 6] VillainSix 140 BB dealer
+            """);
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+        var hero = Assert.Single(snapshot.Players.Where(player => player.IsHero));
+        var seatOne = snapshot.Players.Single(player => player.Seat == 1);
+
+        Assert.Equal("GenericHeroName", hero.Name);
+        Assert.Equal("GenericHeroName", seatOne.Name);
+        Assert.DoesNotContain(snapshot.Players.Where(player => !player.IsHero), player => player.Name == "994");
+        Assert.False(hero.HasVisibleCards);
+        Assert.Contains("fallback GenericHeroName", snapshot.HeroNameField?.Reason);
+    }
+
+    [Fact]
+    public async Task ParseAsync_DoesNotSetVisibleCardsWhenHeroCardsAreUnreadable()
     {
         var parser = CreateParser(
             """
             [Seat 1] HeroBottom 97 BB
-            [Seat 2] PlayerTwo 80 BB 0.5 BB
-            [Seat 3] PlayerThree 100 BB 1 BB
-            [Seat 4] PlayerFour 101 BB FOLD
-            [Seat 5] PlayerFive 145 BB
-            [Seat 6] PlayerSix 111 BB
-            Q♠ K♣
-            """);
+            [Seat 2] VillainTwo 80 BB 0.5 BB
+            [Seat 3] VillainThree 100 BB 1 BB
+            [Seat 4] VillainFour 101 BB
+            [Seat 5] VillainFive 145 BB
+            [Seat 6] VillainSix 111 BB dealer
+            """,
+            "dealer icon only");
 
-        var snapshot = await parser.ParseAsync(new CapturedImage { WindowTitle = "Table Alpha" });
+        var snapshot = await parser.ParseAsync(CreatePngImage());
         var hero = Assert.Single(snapshot.Players.Where(player => player.IsHero));
 
         Assert.Equal("HeroBottom", hero.Name);
-        Assert.False(snapshot.DealerSeatField?.IsValid);
-        Assert.False(snapshot.HeroPositionField?.IsValid);
-        Assert.Contains("dealer detection", snapshot.HeroPositionField?.Reason);
+        Assert.False(hero.HasVisibleCards);
+        Assert.All(snapshot.Round1PocketCards, cards => Assert.Equal("X X", cards.Cards));
     }
 
-    private static PreHeroScreenshotParser CreateParser(string rawText)
+    [Fact]
+    public async Task ParseAsync_DoesNotAssignHeroWhenHeroSeatCannotBeDetected()
+    {
+        var parser = CreateParser(
+            """
+            [Seat 2] VillainTwo 80 BB 0.5 BB
+            [Seat 3] VillainThree 100 BB 1 BB
+            [Seat 4] VillainFour 101 BB
+            [Seat 5] VillainFive 145 BB
+            [Seat 6] VillainSix 111 BB dealer
+            """,
+            "A♠ K♣");
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.DoesNotContain(snapshot.Players, player => player.IsHero);
+        Assert.False(snapshot.HeroNameField?.IsValid);
+        Assert.All(snapshot.Players, player =>
+        {
+            Assert.False(player.IsHero);
+            Assert.False(player.HasVisibleCards);
+        });
+    }
+
+    private static PreHeroScreenshotParser CreateParser(string fullText, string? heroCardRegionText = null)
     {
         return new PreHeroScreenshotParser(
-            new StubOcrEngine(rawText),
+            new SequenceOcrEngine(fullText, heroCardRegionText ?? string.Empty),
             new OcrTableHeaderExtractor(),
             new FixedLayoutSeatSnapshotExtractor(),
             new OcrHeroCardExtractor(),
@@ -65,12 +116,33 @@ public sealed class PreHeroScreenshotParserTests
             new PreHeroActionInferencer());
     }
 
-    private sealed class StubOcrEngine(string rawText) : IOcrEngine
+    private static CapturedImage CreatePngImage()
     {
+        using var bitmap = new Bitmap(200, 200, PixelFormat.Format24bppRgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.DarkGreen);
+
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+
+        return new CapturedImage
+        {
+            ImageBytes = stream.ToArray(),
+            Width = bitmap.Width,
+            Height = bitmap.Height,
+            WindowTitle = "Gerekek 817752987 | NL Hold'em | €0.01/€0.02"
+        };
+    }
+
+    private sealed class SequenceOcrEngine(string firstResult, string secondResult) : IOcrEngine
+    {
+        private int _callCount;
+
         public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(rawText);
+            _callCount++;
+            return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
         }
     }
 }

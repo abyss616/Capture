@@ -96,7 +96,7 @@ public sealed class DataExtractor : IDataExtractor
                 IsValid = !string.IsNullOrWhiteSpace(heroCards?.Cards),
                 Error = string.IsNullOrWhiteSpace(heroCards?.Cards) ? "Hero pocket cards not confidently extracted." : null,
                 Confidence = string.IsNullOrWhiteSpace(heroCards?.Cards) ? 0 : 0.9,
-                Reason = string.IsNullOrWhiteSpace(heroCards?.Cards) ? "No hero pocket-card pattern was found." : "Detected hero pocket cards from OCR text."
+                Reason = string.IsNullOrWhiteSpace(heroCards?.Cards) ? "No hero pocket-card pattern was found in the hero card region." : "Detected hero pocket cards from hero-card region OCR."
             },
             snapshot.HeroPositionField ?? BuildSimpleField("HeroPosition", null, false, "Hero position not confidently inferred."),
             snapshot.DealerSeatField ?? BuildSimpleField("DealerSeat", null, false, "Dealer button was not confidently detected."),

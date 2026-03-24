@@ -10,12 +10,12 @@ public sealed partial class HeuristicDealerButtonExtractor : IDealerButtonExtrac
 {
     private static readonly IReadOnlyDictionary<int, PointF> SeatAnchors = new Dictionary<int, PointF>
     {
-        [1] = new PointF(0.33f, 0.72f), // bottom-center(hero), button tends to render left of hero panel
-        [2] = new PointF(0.20f, 0.73f), // bottom-left
-        [3] = new PointF(0.20f, 0.38f), // top-left
-        [4] = new PointF(0.50f, 0.24f), // top-center
-        [5] = new PointF(0.80f, 0.38f), // top-right
-        [6] = new PointF(0.80f, 0.73f)  // bottom-right
+        [1] = new PointF(0.60f, 0.75f), // bottom-center(hero): button drawn to the player's right side
+        [2] = new PointF(0.33f, 0.72f), // bottom-left
+        [3] = new PointF(0.22f, 0.38f), // top-left
+        [4] = new PointF(0.56f, 0.24f), // top-center
+        [5] = new PointF(0.86f, 0.38f), // top-right
+        [6] = new PointF(0.87f, 0.72f)  // bottom-right
     };
 
     public ExtractedField DetectDealerSeat(CapturedImage image, string rawText, IReadOnlyList<SnapshotPlayer> players)

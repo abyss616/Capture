@@ -36,7 +36,7 @@ public sealed class PreHeroScreenshotParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_UsesGenericHeroNameWhenHeroNameIsMissingOrInvalid()
+    public async Task ParseAsync_UsesGenericHeroNameWhenHeroCardsIdentifyHeroSeatButNameIsInvalid()
     {
         var parser = CreateParser(
             """
@@ -60,7 +60,7 @@ public sealed class PreHeroScreenshotParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_DoesNotSetVisibleCardsWhenHeroCardsAreUnreadable()
+    public async Task ParseAsync_DoesNotAssignHeroWhenHeroCardsAreUnreadable()
     {
         var parser = CreateParser(
             """
@@ -74,10 +74,8 @@ public sealed class PreHeroScreenshotParserTests
             "dealer icon only");
 
         var snapshot = await parser.ParseAsync(CreatePngImage());
-        var hero = Assert.Single(snapshot.Players.Where(player => player.IsHero));
-
-        Assert.Equal("HeroBottom", hero.Name);
-        Assert.False(hero.HasVisibleCards);
+        Assert.DoesNotContain(snapshot.Players, player => player.IsHero);
+        Assert.False(snapshot.HeroNameField?.IsValid);
         Assert.All(snapshot.Round1PocketCards, cards => Assert.Equal("X X", cards.Cards));
     }
 

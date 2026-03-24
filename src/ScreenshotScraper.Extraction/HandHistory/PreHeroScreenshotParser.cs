@@ -42,13 +42,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var rawText = await _ocrEngine.ReadTextAsync(image, cancellationToken).ConfigureAwait(false);
         var header = _tableHeaderExtractor.Extract(image, rawText);
         var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
-        var heroSeat = DetectHeroSeat(basePlayers, rawText);
-        var heroCardRegionText = heroSeat.HasValue
-            ? await ReadHeroCardRegionTextAsync(image, cancellationToken).ConfigureAwait(false)
-            : string.Empty;
-        var heroCards = heroSeat.HasValue
-            ? _cardExtractor.ExtractHeroCards(image, heroCardRegionText)
-            : string.Empty;
+        var heroCardRegionText = await ReadHeroCardRegionTextAsync(image, cancellationToken).ConfigureAwait(false);
+        var heroCards = _cardExtractor.ExtractHeroCards(image, heroCardRegionText);
+        var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var dealerSeatField = _dealerButtonExtractor.DetectDealerSeat(image, rawText, basePlayers);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
@@ -87,10 +83,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             Error = heroSeatDetected ? null : "Hero seat was not confidently detected.",
             Confidence = heroSeatDetected ? (usedFallback ? 0.7 : 1.0) : 0,
             Reason = !heroSeatDetected
-                ? "Hero seat could not be reliably identified from the fixed table layout."
+                ? "Hero seat could not be reliably identified from visible hero cards."
                 : usedFallback
-                    ? "Hero seat was identified from layout (seat 1), but hero name OCR was missing/invalid; fallback GenericHeroName was used."
-                    : "Hero seat and name were read from the bottom-center seat region (seat 1)."
+                    ? "Hero seat was identified from visible hero cards (seat 1), but hero name OCR was missing/invalid; fallback GenericHeroName was used."
+                    : "Hero seat was identified from visible hero cards (seat 1), and hero name was read from the seat region."
         };
     }
 
@@ -188,11 +184,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return trimmed.Any(char.IsLetter);
     }
 
-    private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string? rawText)
+    private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string heroCards)
     {
-        if (string.IsNullOrWhiteSpace(rawText)
-            || (!rawText.Contains("[Seat 1]", StringComparison.OrdinalIgnoreCase)
-                && !rawText.Contains("Seat 1", StringComparison.OrdinalIgnoreCase)))
+        if (string.IsNullOrWhiteSpace(heroCards))
         {
             return null;
         }

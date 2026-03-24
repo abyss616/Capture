@@ -1,4 +1,3 @@
-
 using System.Drawing;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -78,7 +77,11 @@ public sealed partial class HeuristicDealerButtonExtractor : IDealerButtonExtrac
         var best = seatScores.OrderByDescending(score => score.TotalScore).First();
         var secondBest = seatScores.Where(score => score.Seat != best.Seat).OrderByDescending(score => score.TotalScore).First();
         var debugOutput = BuildDebugOutput(seatScores);
-        var seatChoiceIsConfident = best.TotalScore >= 0.45 && (best.TotalScore - secondBest.TotalScore) >= 0.08;
+        var seatChoiceIsConfident =
+            best.TotalScore >= 0.24 &&
+            best.Circularity >= 0.12 &&
+            best.YellowRatio >= 0.012 &&
+            (best.TotalScore - secondBest.TotalScore) >= 0.08;
         if (!seatChoiceIsConfident)
         {
             return new ImageDetectionResult(null, $"Image-based dealer detection failed confidence gate. {debugOutput}");
@@ -145,7 +148,8 @@ public sealed partial class HeuristicDealerButtonExtractor : IDealerButtonExtrac
         }
 
         var darkCenterRatio = MeasureDarkCenterRatio(bitmap, roi, bestComponent.Value.Bounds);
-        var totalScore = (yellowRatio * 0.4) + (bestComponent.Value.Circularity * 0.45) + (darkCenterRatio * 0.15);
+        var yellowStrength = Math.Sqrt(yellowRatio);
+        var totalScore = (yellowStrength * 0.35) + (bestComponent.Value.Circularity * 0.45) + (darkCenterRatio * 0.2);
         return new SeatButtonScore(seat, yellowRatio, bestComponent.Value.Circularity, darkCenterRatio, totalScore);
     }
 

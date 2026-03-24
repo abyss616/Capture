@@ -42,8 +42,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var rawText = await _ocrEngine.ReadTextAsync(image, cancellationToken).ConfigureAwait(false);
         var header = _tableHeaderExtractor.Extract(image, rawText);
         var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
-        var heroCardRegionText = await ReadHeroCardRegionTextAsync(image, cancellationToken).ConfigureAwait(false);
-        var heroCards = _cardExtractor.ExtractHeroCards(image, heroCardRegionText);
+        var heroCardRegionImage = CropHeroCardRegion(image);
+        var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
+        var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var dealerSeatField = _dealerButtonExtractor.DetectDealerSeat(image, rawText, basePlayers);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
@@ -196,15 +197,14 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             : null;
     }
 
-    private async Task<string> ReadHeroCardRegionTextAsync(CapturedImage image, CancellationToken cancellationToken)
+    private async Task<string> ReadHeroCardRegionTextAsync(CapturedImage heroCardRegionImage, CancellationToken cancellationToken)
     {
-        var heroCardRegion = CropHeroCardRegion(image);
-        if (heroCardRegion.ImageBytes.Length == 0)
+        if (heroCardRegionImage.ImageBytes.Length == 0)
         {
             return string.Empty;
         }
 
-        return await _ocrEngine.ReadTextAsync(heroCardRegion, cancellationToken).ConfigureAwait(false);
+        return await _ocrEngine.ReadTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
     }
 
     private static CapturedImage CropHeroCardRegion(CapturedImage image)

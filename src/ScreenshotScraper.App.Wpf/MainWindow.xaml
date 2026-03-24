@@ -26,6 +26,11 @@
                     Margin="0,0,12,0"
                     Padding="12,6"
                     Click="CaptureButton_Click" />
+            <Button Content="Upload Screenshot"
+                    Width="160"
+                    Margin="0,0,12,0"
+                    Padding="12,6"
+                    Click="UploadScreenshotButton_Click" />
             <Button Content="Generate XML"
                     Width="120"
                     Padding="12,6"

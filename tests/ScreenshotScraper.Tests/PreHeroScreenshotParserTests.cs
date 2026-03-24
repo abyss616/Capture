@@ -103,6 +103,37 @@ public sealed class PreHeroScreenshotParserTests
         });
     }
 
+    [Fact]
+    public async Task ParseAsync_UsesExpandedHeroCardCropRegionForSecondOcrPass()
+    {
+        var engine = new RecordingOcrEngine(
+            """
+            [Seat 1] HeroBottom 97 BB
+            [Seat 2] VillainTwo 80 BB 0.5 BB
+            [Seat 3] VillainThree 100 BB 1 BB
+            [Seat 4] VillainFour 101 BB
+            [Seat 5] VillainFive 145 BB
+            [Seat 6] VillainSix 111 BB dealer
+            """,
+            "Q♠ K♣");
+        var parser = new PreHeroScreenshotParser(
+            engine,
+            new OcrTableHeaderExtractor(),
+            new FixedLayoutSeatSnapshotExtractor(),
+            new OcrHeroCardExtractor(),
+            new HeuristicDealerButtonExtractor(),
+            new PreHeroActionInferencer());
+
+        await parser.ParseAsync(CreatePngImage());
+
+        Assert.Equal(2, engine.Calls.Count);
+        var heroRegion = engine.Calls[1];
+        Assert.Equal(56, heroRegion.Width);
+        Assert.Equal(60, heroRegion.Height);
+        Assert.Equal(72, heroRegion.WindowLeft);
+        Assert.Equal(116, heroRegion.WindowTop);
+    }
+
     private static PreHeroScreenshotParser CreateParser(string fullText, string? heroCardRegionText = null)
     {
         return new PreHeroScreenshotParser(
@@ -139,6 +170,21 @@ public sealed class PreHeroScreenshotParserTests
         public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _callCount++;
+            return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+        }
+    }
+
+    private sealed class RecordingOcrEngine(string firstResult, string secondResult) : IOcrEngine
+    {
+        private int _callCount;
+
+        public List<CapturedImage> Calls { get; } = [];
+
+        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls.Add(image);
             _callCount++;
             return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
         }

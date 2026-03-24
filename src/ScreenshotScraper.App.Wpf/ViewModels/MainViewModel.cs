@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -107,6 +108,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public Task LoadScreenshotAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ArgumentException("A screenshot file path is required.", nameof(filePath));
+        }
+
+        var imageBytes = File.ReadAllBytes(filePath);
+        var bitmap = BuildBitmap(imageBytes);
+
+        _capturedImage = new CapturedImage
+        {
+            ImageBytes = imageBytes,
+            Width = bitmap.PixelWidth,
+            Height = bitmap.PixelHeight,
+            CapturedAtUtc = DateTime.UtcNow,
+            SourceDescription = Path.GetFileName(filePath),
+            WindowTitle = "Uploaded screenshot",
+            ProcessName = "Local file",
+            WindowWidth = bitmap.PixelWidth,
+            WindowHeight = bitmap.PixelHeight,
+            IsVisible = true,
+            IsForegroundWindow = false,
+            CaptureMethod = "File upload",
+            MonitorDeviceName = "N/A"
+        };
+
+        SetPreview(_capturedImage);
+        CaptureMetadata = BuildMetadataSummary(_capturedImage);
+        ExtractedFields.Clear();
+        XmlContent = "Screenshot uploaded. Generate XML to parse the current screenshot up to hero's first action.";
+        StatusMessage = $"Loaded screenshot '{Path.GetFileName(filePath)}' ({bitmap.PixelWidth}x{bitmap.PixelHeight}).";
+
+        return Task.CompletedTask;
+    }
+
     public async Task BuildXmlAsync(CancellationToken cancellationToken = default)
     {
         if (_capturedImage is null)
@@ -181,6 +220,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         builder.AppendLine($"Monitor: {capturedImage.MonitorDeviceName ?? "(unknown)"}");
         builder.Append($"Source: {capturedImage.SourceDescription ?? "(unknown)"}");
         return builder.ToString();
+    }
+
+    private static BitmapSource BuildBitmap(byte[] imageBytes)
+    {
+        using var stream = new MemoryStream(imageBytes, writable: false);
+        var decoder = BitmapDecoder.Create(
+            stream,
+            BitmapCreateOptions.PreservePixelFormat,
+            BitmapCacheOption.OnLoad);
+        return decoder.Frames.FirstOrDefault()
+            ?? throw new InvalidOperationException("Unable to read screenshot file bytes.");
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

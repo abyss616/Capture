@@ -14,7 +14,7 @@ public sealed class HeuristicDealerButtonExtractorTests
     public void DetectDealerSeat_PrefersImageDealerButtonOverOcrText()
     {
         var extractor = new HeuristicDealerButtonExtractor();
-        using var bitmap = BuildTableImageWithDealerButton(seat: 1, width: 1020, height: 717);
+        using var bitmap = BuildTableImageWithDealerButton(seat: 2, width: 1020, height: 717);
         var image = new CapturedImage
         {
             ImageBytes = ToPngBytes(bitmap),
@@ -28,9 +28,9 @@ public sealed class HeuristicDealerButtonExtractorTests
             players: BuildPlayers());
 
         Assert.True(field.IsValid);
-        Assert.Equal("1", field.ParsedValue);
+        Assert.Equal("2", field.ParsedValue);
         Assert.Contains("Per-seat ROI scores", field.Reason);
-        Assert.Contains("Chosen seat=1", field.Reason);
+        Assert.Contains("Chosen seat=2", field.Reason);
     }
 
     [Fact]
@@ -65,12 +65,12 @@ public sealed class HeuristicDealerButtonExtractorTests
     {
         var anchors = new Dictionary<int, PointF>
         {
-            [1] = new PointF(0.33f, 0.72f),
-            [2] = new PointF(0.20f, 0.73f),
-            [3] = new PointF(0.20f, 0.38f),
-            [4] = new PointF(0.50f, 0.24f),
-            [5] = new PointF(0.80f, 0.38f),
-            [6] = new PointF(0.80f, 0.73f)
+            [1] = new PointF(0.60f, 0.75f),
+            [2] = new PointF(0.33f, 0.72f),
+            [3] = new PointF(0.22f, 0.38f),
+            [4] = new PointF(0.56f, 0.24f),
+            [5] = new PointF(0.86f, 0.38f),
+            [6] = new PointF(0.87f, 0.72f)
         };
 
         var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);

@@ -39,7 +39,7 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
 
         var seatRois = _layout.GetSeatRois(frame.Width, frame.Height);
         var diagnostics = new Dictionary<int, SeatDetectionDiagnostics>();
-        var dealerScores = new Dictionary<int, double>();
+        var seatSnapshots = new List<SeatSnapshot>(seatRois.Count);
         var occupiedSeats = new List<int>();
 
         var debugFrame = _options.EnableDebugArtifacts ? frame.Clone() : null;
@@ -48,20 +48,31 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
         {
             var dealerScore = ScoreDealerSeat(frame, seat.DealerButtonSearchRoi);
             var occupancy = ScoreOccupancy(frame, seat.OccupancyRoi);
-            var isOccupied = occupancy.IsOccupied || players.Any(player => player.Seat == seat.Seat && !string.IsNullOrWhiteSpace(player.Name));
+            var isOccupied = occupancy.IsOccupied;
+
             if (isOccupied)
             {
                 occupiedSeats.Add(seat.Seat);
             }
 
-            dealerScores[seat.Seat] = dealerScore;
             diagnostics[seat.Seat] = new SeatDetectionDiagnostics
             {
                 DealerScore = dealerScore,
                 OccupancyScore = occupancy.Score,
                 IsOccupied = isOccupied,
+                DealerThresholdPassed = dealerScore >= _options.DealerTemplateThreshold,
                 Notes = occupancy.Notes
             };
+
+            seatSnapshots.Add(new SeatSnapshot
+            {
+                SeatNumber = seat.Seat,
+                IsOccupied = isOccupied,
+                DealerScore = dealerScore,
+                OccupancyScore = occupancy.Score,
+                DealerThresholdPassed = dealerScore >= _options.DealerTemplateThreshold,
+                Diagnostics = occupancy.Notes
+            });
 
             if (debugFrame is not null)
             {
@@ -70,29 +81,31 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
             }
         }
 
-        var best = dealerScores.OrderByDescending(pair => pair.Value).First();
-        var second = dealerScores.Where(pair => pair.Key != best.Key).DefaultIfEmpty(new KeyValuePair<int, double>(0, 0)).MaxBy(pair => pair.Value);
-        var dealerSeat = best.Value >= _options.DealerTemplateThreshold && (best.Value - second.Value) >= _options.DealerMarginThreshold
-            ? best.Key
+        var occupiedSeatSnapshots = seatSnapshots.Where(snapshot => snapshot.IsOccupied).OrderByDescending(snapshot => snapshot.DealerScore).ToList();
+        var bestOccupied = occupiedSeatSnapshots.FirstOrDefault();
+        var secondOccupiedScore = occupiedSeatSnapshots.Skip(1).Select(snapshot => snapshot.DealerScore).DefaultIfEmpty(0).Max();
+
+        var dealerSeat = bestOccupied is not null
+            && bestOccupied.DealerThresholdPassed
+            && (bestOccupied.DealerScore - secondOccupiedScore) >= _options.DealerMarginThreshold
+            ? bestOccupied.SeatNumber
             : (int?)null;
 
         if (debugFrame is not null)
         {
-            if (dealerSeat.HasValue)
-            {
-                var roi = seatRois.First(seat => seat.Seat == dealerSeat.Value).DealerButtonSearchRoi;
-                Cv2.Rectangle(debugFrame, ToRect(roi), Scalar.Red, 3);
-            }
-
+            DrawSummary(debugFrame, seatRois, seatSnapshots, dealerSeat);
             SaveDebugFrame(debugFrame, image.CapturedAtUtc);
+            SaveSeatSummary(image.CapturedAtUtc, seatSnapshots, dealerSeat);
             debugFrame.Dispose();
         }
 
         return new TableDetectionResult
         {
             DealerSeat = dealerSeat,
-            DealerConfidence = dealerSeat.HasValue ? best.Value : 0,
-            OccupiedSeats = occupiedSeats,
+            DealerDetected = dealerSeat.HasValue,
+            DealerConfidence = dealerSeat.HasValue ? bestOccupied?.DealerScore ?? 0 : 0,
+            OccupiedSeats = occupiedSeats.OrderBy(seat => seat).ToList(),
+            SeatSnapshots = seatSnapshots.OrderBy(snapshot => snapshot.SeatNumber).ToList(),
             PerSeatDiagnostics = diagnostics
         };
     }
@@ -154,24 +167,27 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
     {
         var templates = new List<Mat>();
         var basePath = AppContext.BaseDirectory;
-        var candidatePaths = new[]
+        var candidateDirectories = new[]
         {
-            Path.Combine(basePath, "Assets", "dealer_button_template.pgm"),
-            Path.Combine(basePath, "dealer_button_template.pgm"),
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "ScreenshotScraper.Extraction", "Assets", "dealer_button_template.pgm")
+            Path.Combine(basePath, "Assets"),
+            basePath,
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "ScreenshotScraper.Extraction", "Assets")
         };
 
-        foreach (var path in candidatePaths.Distinct())
+        foreach (var directory in candidateDirectories.Distinct())
         {
-            if (!File.Exists(path))
+            if (!Directory.Exists(directory))
             {
                 continue;
             }
 
-            var mat = Cv2.ImRead(path, ImreadModes.Grayscale);
-            if (!mat.Empty())
+            foreach (var file in Directory.EnumerateFiles(directory, "dealer_button_template*.*", SearchOption.TopDirectoryOnly))
             {
-                templates.Add(mat);
+                var mat = Cv2.ImRead(file, ImreadModes.Grayscale);
+                if (!mat.Empty())
+                {
+                    templates.Add(mat);
+                }
             }
         }
 
@@ -180,10 +196,38 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
 
     private void DrawSeatDebug(Mat frame, SeatVisionRoi seat, int seatNo, double dealerScore, double occupancyScore, bool occupied)
     {
-        var dealerColor = occupied ? Scalar.LimeGreen : Scalar.Orange;
-        Cv2.Rectangle(frame, ToRect(seat.DealerButtonSearchRoi), dealerColor, 2);
+        Cv2.Rectangle(frame, ToRect(seat.DealerButtonSearchRoi), Scalar.Orange, 2);
         Cv2.Rectangle(frame, ToRect(seat.OccupancyRoi), Scalar.Cyan, 2);
-        Cv2.PutText(frame, $"S{seatNo} D:{dealerScore:0.00} O:{occupancyScore:0.00}", new Point(seat.OccupancyRoi.X, Math.Max(15, seat.OccupancyRoi.Y - 4)), HersheyFonts.HersheySimplex, 0.4, Scalar.White, 1);
+        Cv2.PutText(frame, $"S{seatNo} D:{dealerScore:0.00} O:{occupancyScore:0.00} {(occupied ? "occ" : "empty")}", new Point(seat.OccupancyRoi.X, Math.Max(15, seat.OccupancyRoi.Y - 4)), HersheyFonts.HersheySimplex, 0.4, Scalar.White, 1);
+    }
+
+    private void DrawSummary(Mat frame, IReadOnlyList<SeatVisionRoi> seatRois, IReadOnlyList<SeatSnapshot> seatSnapshots, int? dealerSeat)
+    {
+        foreach (var seat in seatRois)
+        {
+            var occupancyCenter = new Point(
+                seat.OccupancyRoi.Left + seat.OccupancyRoi.Width / 2,
+                seat.OccupancyRoi.Top + seat.OccupancyRoi.Height / 2);
+            Cv2.PutText(frame, $"Seat {seat.Seat}", occupancyCenter, HersheyFonts.HersheySimplex, 0.45, Scalar.Yellow, 1);
+        }
+
+        if (!dealerSeat.HasValue)
+        {
+            return;
+        }
+
+        var winner = seatRois.First(seat => seat.Seat == dealerSeat.Value).DealerButtonSearchRoi;
+        Cv2.Rectangle(frame, ToRect(winner), Scalar.Red, 3);
+
+        var winningSnapshot = seatSnapshots.First(snapshot => snapshot.SeatNumber == dealerSeat.Value);
+        Cv2.PutText(
+            frame,
+            $"Dealer seat {dealerSeat.Value} ({winningSnapshot.DealerScore:0.000})",
+            new Point(20, 24),
+            HersheyFonts.HersheySimplex,
+            0.6,
+            Scalar.Red,
+            2);
     }
 
     private void SaveSeatCrop(Mat frame, SeatVisionRoi seat, DateTime capturedAt)
@@ -199,6 +243,26 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
     {
         var directory = EnsureDebugDirectory(capturedAt);
         Cv2.ImWrite(Path.Combine(directory, "table_rois.png"), frame);
+    }
+
+    private void SaveSeatSummary(DateTime capturedAt, IReadOnlyList<SeatSnapshot> seatSnapshots, int? dealerSeat)
+    {
+        var directory = EnsureDebugDirectory(capturedAt);
+        var lines = new List<string>
+        {
+            $"DealerSeat={(dealerSeat.HasValue ? dealerSeat.Value : "none")}",
+            $"DealerTemplateThreshold={_options.DealerTemplateThreshold:0.000}",
+            $"DealerMarginThreshold={_options.DealerMarginThreshold:0.000}",
+            $"OccupancyStdDevThreshold={_options.OccupancyStdDevThreshold:0.000}",
+            $"OccupancyEdgeRatioThreshold={_options.OccupancyEdgeRatioThreshold:0.000}"
+        };
+
+        lines.AddRange(seatSnapshots
+            .OrderBy(snapshot => snapshot.SeatNumber)
+            .Select(snapshot =>
+                $"Seat {snapshot.SeatNumber}: occupied={snapshot.IsOccupied}, occScore={snapshot.OccupancyScore:0.000}, dealerScore={snapshot.DealerScore:0.000}, dealerPass={snapshot.DealerThresholdPassed}, notes={snapshot.Diagnostics}"));
+
+        File.WriteAllLines(Path.Combine(directory, "seat_summary.txt"), lines);
     }
 
     private string EnsureDebugDirectory(DateTime capturedAt)

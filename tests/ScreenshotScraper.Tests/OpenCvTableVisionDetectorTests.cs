@@ -34,6 +34,31 @@ public sealed class OpenCvTableVisionDetectorTests
         Assert.Equal([1, 3, 5], result.OccupiedSeats.OrderBy(seat => seat).ToList());
     }
 
+
+    [Fact]
+    public void Detect_DoesNotAssignDealerToEmptySeat()
+    {
+        var detector = new OpenCvTableVisionDetector();
+        using var bitmap = BuildTableImage([1, 2, 3, 4, 5], dealerSeat: 6);
+
+        var result = detector.Detect(ToCapturedImage(bitmap), BuildPlayers());
+
+        Assert.Null(result.DealerSeat);
+        Assert.False(result.DealerDetected);
+    }
+
+    [Fact]
+    public void Detect_ExposesSeatSnapshotsForAllSeats()
+    {
+        var detector = new OpenCvTableVisionDetector();
+        using var bitmap = BuildTableImage([1, 3, 4, 6], dealerSeat: 3);
+
+        var result = detector.Detect(ToCapturedImage(bitmap), BuildPlayers());
+
+        Assert.Equal(6, result.SeatSnapshots.Count);
+        Assert.Equal([1, 3, 4, 6], result.SeatSnapshots.Where(snapshot => snapshot.IsOccupied).Select(snapshot => snapshot.SeatNumber).OrderBy(seat => seat).ToList());
+        Assert.All(result.SeatSnapshots, snapshot => Assert.Equal(snapshot.DealerScore >= 0.58, snapshot.DealerThresholdPassed));
+    }
     [Fact]
     public void Detect_DoesNotGuessDealer_WhenTemplateMatchBelowThreshold()
     {

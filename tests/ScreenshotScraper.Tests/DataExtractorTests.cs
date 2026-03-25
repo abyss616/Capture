@@ -50,7 +50,7 @@ public sealed class DataExtractorTests
         Assert.Equal("Hero", result.Fields.Single(field => field.Name == "HeroName").ParsedValue);
         Assert.Equal("SQ CK", result.Fields.Single(field => field.Name == "HeroPocketCards").ParsedValue);
         Assert.Equal("6", result.Fields.Single(field => field.Name == "PlayerCount").ParsedValue);
-        Assert.Equal("CO", result.Fields.Single(field => field.Name == "HeroPosition").ParsedValue);
+        Assert.Null(result.Fields.Single(field => field.Name == "HeroPosition").ParsedValue);
         Assert.Equal("6", result.Fields.Single(field => field.Name == "DealerSeat").ParsedValue);
         Assert.True(result.Fields.Single(field => field.Name == "GameCode").Confidence > 0.9);
     }

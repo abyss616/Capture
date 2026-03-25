@@ -51,10 +51,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
         var players = ApplyDealerAndHeroCards(basePlayers, dealerSeat, heroSeat, heroCards, tableDetection);
-        players = SixMaxPositionMapper.AssignPositions(players).ToList();
         var hero = players.FirstOrDefault(player => player.IsHero);
         var heroNameField = BuildHeroNameField(hero, heroSeat.HasValue);
-        var heroPositionField = BuildHeroPositionField(hero, dealerSeatField);
+        var heroPositionField = BuildHeroPositionField();
         var actions = _preHeroActionInferencer.Infer(players);
 
         return new PartialHandHistorySnapshot
@@ -125,33 +124,17 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         };
     }
 
-    private static ExtractedField BuildHeroPositionField(SnapshotPlayer? hero, ExtractedField dealerSeatField)
+    private static ExtractedField BuildHeroPositionField()
     {
-        if (hero is not null && !string.IsNullOrWhiteSpace(hero.Position))
-        {
-            return new ExtractedField
-            {
-                Name = "HeroPosition",
-                RawText = hero.Position,
-                ParsedValue = hero.Position,
-                IsValid = true,
-                Error = null,
-                Confidence = dealerSeatField.IsValid ? Math.Min(1.0, 0.55 + dealerSeatField.Confidence * 0.45) : 0.2,
-                Reason = $"Hero position was inferred from fixed 6-max seat indices using dealer seat {dealerSeatField.ParsedValue}."
-            };
-        }
-
         return new ExtractedField
         {
             Name = "HeroPosition",
-            RawText = hero?.Position,
-            ParsedValue = hero?.Position,
+            RawText = null,
+            ParsedValue = null,
             IsValid = false,
-            Error = "Hero position not confidently inferred.",
+            Error = "Hero position assignment is deferred.",
             Confidence = 0,
-            Reason = dealerSeatField.IsValid
-                ? "Hero seat was identified, but no position could be mapped from the 6-max layout."
-                : $"Hero seat was identified, but dealer detection was low-confidence or missing: {dealerSeatField.Reason}"
+            Reason = "Position assignment (BTN/SB/BB/UTG/HJ/CO) is intentionally deferred until occupied-seat and dealer-snapshot validation is complete."
         };
     }
 
@@ -170,45 +153,73 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
 
     private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, string heroCards, TableDetectionResult tableDetection)
     {
-        var occupiedByVision = tableDetection.OccupiedSeats.ToHashSet();
-        var occupiedPlayers = players
-            .Where(player => occupiedByVision.Count == 0
-                ? !string.IsNullOrWhiteSpace(player.Name) || player.Seat == heroSeat
-                : occupiedByVision.Contains(player.Seat) || player.Seat == heroSeat)
+        var playersBySeat = players.ToDictionary(player => player.Seat);
+        var occupiedSeats = tableDetection.OccupiedSeats
+            .Where(seat => seat is >= 1 and <= 6)
+            .Distinct()
+            .OrderBy(seat => seat)
             .ToList();
 
-        return players
-            .Where(player => occupiedPlayers.Any(occupied => occupied.Seat == player.Seat))
-            .Select(player => new SnapshotPlayer
+        if (occupiedSeats.Count == 0)
+        {
+            occupiedSeats = players
+                .Where(player => !string.IsNullOrWhiteSpace(player.Name) || !string.IsNullOrWhiteSpace(player.Chips) || !string.IsNullOrWhiteSpace(player.Bet))
+                .Select(player => player.Seat)
+                .Distinct()
+                .OrderBy(seat => seat)
+                .ToList();
+        }
+
+        if (heroSeat.HasValue && !occupiedSeats.Contains(heroSeat.Value))
+        {
+            occupiedSeats.Add(heroSeat.Value);
+        }
+
+        occupiedSeats = occupiedSeats.OrderBy(seat => seat).ToList();
+
+        var dealerIsOnOccupiedSeat = dealerSeat.HasValue && occupiedSeats.Contains(dealerSeat.Value);
+
+        return occupiedSeats
+            .Select(seat =>
             {
-                Seat = player.Seat,
-                Name = ResolvePlayerName(player, heroSeat),
-                Chips = player.Chips,
-                Dealer = dealerSeat.HasValue && player.Seat == dealerSeat.Value,
-                Bet = player.Bet,
-                Win = player.Win,
-                Muck = player.Muck,
-                Cashout = player.Cashout,
-                CashoutFee = player.CashoutFee,
-                RakeAmount = player.RakeAmount,
-                Position = player.Position,
-                IsHero = heroSeat.HasValue && player.Seat == heroSeat.Value,
-                AppearsFolded = player.AppearsFolded,
-                HasVisibleCards = heroSeat.HasValue && player.Seat == heroSeat.Value && !string.IsNullOrWhiteSpace(heroCards)
+                playersBySeat.TryGetValue(seat, out var extracted);
+                var isHero = heroSeat.HasValue && seat == heroSeat.Value;
+
+                return new SnapshotPlayer
+                {
+                    Seat = seat,
+                    Name = ResolvePlayerName(extracted, seat, isHero),
+                    Chips = extracted?.Chips ?? string.Empty,
+                    Dealer = dealerIsOnOccupiedSeat && seat == dealerSeat,
+                    Bet = extracted?.Bet ?? string.Empty,
+                    Win = extracted?.Win ?? string.Empty,
+                    Muck = extracted?.Muck ?? string.Empty,
+                    Cashout = extracted?.Cashout ?? string.Empty,
+                    CashoutFee = extracted?.CashoutFee ?? string.Empty,
+                    RakeAmount = extracted?.RakeAmount ?? string.Empty,
+                    Position = string.Empty,
+                    IsHero = isHero,
+                    AppearsFolded = extracted?.AppearsFolded ?? false,
+                    HasVisibleCards = isHero && !string.IsNullOrWhiteSpace(heroCards)
+                };
             })
             .ToList();
     }
 
-    private static string ResolvePlayerName(SnapshotPlayer player, int? heroSeat)
+    private static string ResolvePlayerName(SnapshotPlayer? player, int seat, bool isHero)
     {
-        if (!heroSeat.HasValue || player.Seat != heroSeat.Value)
+        if (isHero)
+        {
+            var heroName = player?.Name;
+            return IsReliableHeroName(heroName) ? heroName! : GenericHeroName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(player?.Name))
         {
             return player.Name;
         }
 
-        return IsReliableHeroName(player.Name)
-            ? player.Name
-            : GenericHeroName;
+        return $"Seat{seat}_Unknown";
     }
 
     private static bool IsReliableHeroName(string? name)

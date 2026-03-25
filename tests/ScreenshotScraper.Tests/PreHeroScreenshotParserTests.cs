@@ -121,7 +121,7 @@ public sealed class PreHeroScreenshotParserTests
             new OcrTableHeaderExtractor(),
             new FixedLayoutSeatSnapshotExtractor(),
             new OcrHeroCardExtractor(),
-            new HeuristicDealerButtonExtractor(),
+            new OpenCvTableVisionDetector(),
             new PreHeroActionInferencer());
 
         await parser.ParseAsync(CreatePngImage());
@@ -141,7 +141,7 @@ public sealed class PreHeroScreenshotParserTests
             new OcrTableHeaderExtractor(),
             new FixedLayoutSeatSnapshotExtractor(),
             new OcrHeroCardExtractor(),
-            new HeuristicDealerButtonExtractor(),
+            new OpenCvTableVisionDetector(),
             new PreHeroActionInferencer());
     }
 

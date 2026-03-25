@@ -47,7 +47,7 @@ public partial class App : Application
         services.AddSingleton<ITableHeaderExtractor, OcrTableHeaderExtractor>();
         services.AddSingleton<ISeatSnapshotExtractor, FixedLayoutSeatSnapshotExtractor>();
         services.AddSingleton<ICardExtractor, OcrHeroCardExtractor>();
-        services.AddSingleton<IDealerButtonExtractor, HeuristicDealerButtonExtractor>();
+        services.AddSingleton<ITableVisionDetector, OpenCvTableVisionDetector>();
         services.AddSingleton<IPreHeroActionInferencer, PreHeroActionInferencer>();
         services.AddSingleton<IPreHeroScreenshotParser, PreHeroScreenshotParser>();
         services.AddSingleton<IDataExtractor, DataExtractor>();

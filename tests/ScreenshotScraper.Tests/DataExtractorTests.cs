@@ -63,7 +63,7 @@ public sealed class DataExtractorTests
                 new OcrTableHeaderExtractor(),
                 new FixedLayoutSeatSnapshotExtractor(),
                 new OcrHeroCardExtractor(),
-                new HeuristicDealerButtonExtractor(),
+                new OpenCvTableVisionDetector(),
                 new PreHeroActionInferencer()));
     }
 

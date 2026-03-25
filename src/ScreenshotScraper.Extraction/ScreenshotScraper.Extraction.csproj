@@ -4,10 +4,15 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" />
+    <PackageReference Include="OpenCvSharp4" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ScreenshotScraper.Core\ScreenshotScraper.Core.csproj" />
     <ProjectReference Include="..\ScreenshotScraper.Ocr\ScreenshotScraper.Ocr.csproj" />
     <ProjectReference Include="..\ScreenshotScraper.Imaging\ScreenshotScraper.Imaging.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Assets\dealer_button_template.pgm" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

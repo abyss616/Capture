@@ -137,7 +137,7 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
         Cv2.CvtColor(seatMat, gray, ColorConversionCodes.BGR2GRAY);
 
         Cv2.MeanStdDev(gray, out _, out var stddev);
-        var variability = stddev[0, 0];
+        var variability = stddev[0];
 
         using var edges = new Mat();
         Cv2.Canny(gray, edges, 55, 140);

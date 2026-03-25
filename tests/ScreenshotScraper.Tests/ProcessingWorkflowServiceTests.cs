@@ -33,7 +33,7 @@ public sealed class ProcessingWorkflowServiceTests
                     new OcrTableHeaderExtractor(),
                     new FixedLayoutSeatSnapshotExtractor(),
                     new OcrHeroCardExtractor(),
-                    new HeuristicDealerButtonExtractor(),
+                    new OpenCvTableVisionDetector(),
                     new PreHeroActionInferencer())),
             new XmlBuilder());
 

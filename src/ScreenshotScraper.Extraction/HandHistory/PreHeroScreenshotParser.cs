@@ -16,7 +16,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
     private readonly ITableHeaderExtractor _tableHeaderExtractor;
     private readonly ISeatSnapshotExtractor _seatSnapshotExtractor;
     private readonly ICardExtractor _cardExtractor;
-    private readonly IDealerButtonExtractor _dealerButtonExtractor;
+    private readonly ITableVisionDetector _tableVisionDetector;
     private readonly IPreHeroActionInferencer _preHeroActionInferencer;
 
     public PreHeroScreenshotParser(
@@ -24,14 +24,14 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         ITableHeaderExtractor tableHeaderExtractor,
         ISeatSnapshotExtractor seatSnapshotExtractor,
         ICardExtractor cardExtractor,
-        IDealerButtonExtractor dealerButtonExtractor,
+        ITableVisionDetector tableVisionDetector,
         IPreHeroActionInferencer preHeroActionInferencer)
     {
         _ocrEngine = ocrEngine;
         _tableHeaderExtractor = tableHeaderExtractor;
         _seatSnapshotExtractor = seatSnapshotExtractor;
         _cardExtractor = cardExtractor;
-        _dealerButtonExtractor = dealerButtonExtractor;
+        _tableVisionDetector = tableVisionDetector;
         _preHeroActionInferencer = preHeroActionInferencer;
     }
 
@@ -46,10 +46,11 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
         var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
-        var dealerSeatField = _dealerButtonExtractor.DetectDealerSeat(image, rawText, basePlayers);
+        var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
+        var dealerSeatField = BuildDealerSeatField(tableDetection);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
-        var players = ApplyDealerAndHeroCards(basePlayers, dealerSeat, heroSeat, heroCards);
+        var players = ApplyDealerAndHeroCards(basePlayers, dealerSeat, heroSeat, heroCards, tableDetection);
         players = SixMaxPositionMapper.AssignPositions(players).ToList();
         var hero = players.FirstOrDefault(player => player.IsHero);
         var heroNameField = BuildHeroNameField(hero, heroSeat.HasValue);
@@ -68,6 +69,39 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             HeroNameField = heroNameField,
             DealerSeatField = dealerSeatField,
             HeroPositionField = heroPositionField
+        };
+    }
+
+
+    private static ExtractedField BuildDealerSeatField(TableDetectionResult tableDetection)
+    {
+        var diagnostics = string.Join(
+            "; ",
+            tableDetection.PerSeatDiagnostics.OrderBy(pair => pair.Key).Select(pair =>
+                $"S{pair.Key}:dealer={pair.Value.DealerScore:0.000},occupied={pair.Value.IsOccupied},occScore={pair.Value.OccupancyScore:0.000}"));
+
+        if (tableDetection.DealerSeat.HasValue)
+        {
+            return new ExtractedField
+            {
+                Name = "DealerSeat",
+                RawText = diagnostics,
+                ParsedValue = tableDetection.DealerSeat.Value.ToString(),
+                IsValid = true,
+                Confidence = tableDetection.DealerConfidence,
+                Reason = $"OpenCV template match selected seat {tableDetection.DealerSeat.Value}. {diagnostics}"
+            };
+        }
+
+        return new ExtractedField
+        {
+            Name = "DealerSeat",
+            RawText = diagnostics,
+            ParsedValue = null,
+            IsValid = false,
+            Error = "Dealer button was not confidently detected.",
+            Confidence = tableDetection.DealerConfidence,
+            Reason = $"OpenCV dealer detection did not pass threshold. {diagnostics}"
         };
     }
 
@@ -134,10 +168,13 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             .ToList();
     }
 
-    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, string heroCards)
+    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, string heroCards, TableDetectionResult tableDetection)
     {
+        var occupiedByVision = tableDetection.OccupiedSeats.ToHashSet();
         var occupiedPlayers = players
-            .Where(player => !string.IsNullOrWhiteSpace(player.Name) || player.Seat == heroSeat)
+            .Where(player => occupiedByVision.Count == 0
+                ? !string.IsNullOrWhiteSpace(player.Name) || player.Seat == heroSeat
+                : occupiedByVision.Contains(player.Seat) || player.Seat == heroSeat)
             .ToList();
 
         return players

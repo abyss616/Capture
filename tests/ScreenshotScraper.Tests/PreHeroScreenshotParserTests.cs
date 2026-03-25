@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
+using ScreenshotScraper.Core.Models.HandHistory;
 using ScreenshotScraper.Extraction.HandHistory;
 using Xunit;
 
@@ -10,7 +11,7 @@ namespace ScreenshotScraper.Tests;
 public sealed class PreHeroScreenshotParserTests
 {
     [Fact]
-    public async Task ParseAsync_AssignsHeroPositionWhenDealerIsDetectedFromSeatRegion()
+    public async Task ParseAsync_LeavesHeroPositionUnset_WhenPositionAssignmentIsDeferred()
     {
         var parser = CreateParser(
             """
@@ -27,9 +28,9 @@ public sealed class PreHeroScreenshotParserTests
         var hero = Assert.Single(snapshot.Players.Where(player => player.IsHero));
 
         Assert.Equal("HeroBottom", hero.Name);
-        Assert.Equal("CO", hero.Position);
-        Assert.True(snapshot.HeroPositionField?.IsValid);
-        Assert.Equal("CO", snapshot.HeroPositionField?.ParsedValue);
+        Assert.True(string.IsNullOrWhiteSpace(hero.Position));
+        Assert.False(snapshot.HeroPositionField?.IsValid);
+        Assert.Null(snapshot.HeroPositionField?.ParsedValue);
         Assert.Equal("6", snapshot.DealerSeatField?.ParsedValue);
         Assert.True(hero.HasVisibleCards);
         Assert.Equal("SQ CK", snapshot.Round1PocketCards.Single(cards => cards.Player == "HeroBottom").Cards);
@@ -103,6 +104,34 @@ public sealed class PreHeroScreenshotParserTests
         });
     }
 
+
+    [Fact]
+    public async Task ParseAsync_ListsPlayersFromOccupiedSeats_WithFallbackNames()
+    {
+        var parser = CreateParser(
+            """
+            [Seat 1] HeroBottom 97 BB
+            [Seat 2] 
+            [Seat 3] VillainThree 100 BB 1 BB
+            """,
+            "Q♠ K♣",
+            new StubTableVisionDetector(new TableDetectionResult
+            {
+                DealerSeat = 3,
+                DealerDetected = true,
+                DealerConfidence = 0.89,
+                OccupiedSeats = [1, 3, 5],
+                PerSeatDiagnostics = new Dictionary<int, SeatDetectionDiagnostics>()
+            }));
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.Equal([1, 3, 5], snapshot.Players.Select(player => player.Seat).OrderBy(seat => seat).ToList());
+        Assert.Equal("Seat5_Unknown", snapshot.Players.Single(player => player.Seat == 5).Name);
+        Assert.True(snapshot.Players.Single(player => player.Seat == 3).Dealer);
+        Assert.Equal(1, snapshot.Players.Count(player => player.Dealer));
+    }
+
     [Fact]
     public async Task ParseAsync_UsesExpandedHeroCardCropRegionForSecondOcrPass()
     {
@@ -134,14 +163,14 @@ public sealed class PreHeroScreenshotParserTests
         Assert.Equal(116, heroRegion.WindowTop);
     }
 
-    private static PreHeroScreenshotParser CreateParser(string fullText, string? heroCardRegionText = null)
+    private static PreHeroScreenshotParser CreateParser(string fullText, string? heroCardRegionText = null, ITableVisionDetector? tableVisionDetector = null)
     {
         return new PreHeroScreenshotParser(
             new SequenceOcrEngine(fullText, heroCardRegionText ?? string.Empty),
             new OcrTableHeaderExtractor(),
             new FixedLayoutSeatSnapshotExtractor(),
             new OcrHeroCardExtractor(),
-            new OpenCvTableVisionDetector(),
+            tableVisionDetector ?? new OpenCvTableVisionDetector(),
             new PreHeroActionInferencer());
     }
 
@@ -172,6 +201,14 @@ public sealed class PreHeroScreenshotParserTests
             cancellationToken.ThrowIfCancellationRequested();
             _callCount++;
             return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+        }
+    }
+
+    private sealed class StubTableVisionDetector(TableDetectionResult result) : ITableVisionDetector
+    {
+        public TableDetectionResult Detect(CapturedImage image, IReadOnlyList<SnapshotPlayer> players)
+        {
+            return result;
         }
     }
 

@@ -180,6 +180,43 @@ public sealed class PreHeroScreenshotParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_UsesSeatLocalRoiOcr_WhenGlobalSeatHeadersAreMissing()
+    {
+        var responses = new Queue<string>(new[]
+        {
+            string.Empty, // full-table OCR
+            string.Empty, // hero card OCR
+            "HeroBottom", "97 BB", "",          // seat 1
+            "jkl102", "238.50 BB", "0.50 BB",   // seat 2
+            "Beng1994", "98.50 BB", "",         // seat 3
+            "Wulverate", "223.50 BB", "1 BB",   // seat 4
+            "Urlish", "73 BB", "",              // seat 5
+            "195030", "100 BB", ""              // seat 6
+        });
+
+        var parser = new PreHeroScreenshotParser(
+            new QueueOcrEngine(responses),
+            new OcrTableHeaderExtractor(),
+            new FixedLayoutSeatSnapshotExtractor(),
+            new OcrHeroCardExtractor(),
+            new StubTableVisionDetector(new TableDetectionResult
+            {
+                DealerSeat = 1,
+                DealerDetected = true,
+                DealerConfidence = 0.9,
+                OccupiedSeats = [1, 2, 3, 4, 5, 6],
+                PerSeatDiagnostics = new Dictionary<int, SeatDetectionDiagnostics>()
+            }),
+            new PreHeroActionInferencer());
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.Contains(snapshot.Players, player => player.Seat == 2 && player.Name == "jkl102");
+        Assert.Contains(snapshot.Players, player => player.Seat == 3 && player.Name == "Beng1994");
+        Assert.DoesNotContain(snapshot.Players, player => player.Name.EndsWith("_Unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ParseAsync_UsesExpandedHeroCardCropRegionForSecondOcrPass()
     {
         var engine = new RecordingOcrEngine(
@@ -271,6 +308,15 @@ public sealed class PreHeroScreenshotParserTests
             Calls.Add(image);
             _callCount++;
             return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+        }
+    }
+
+    private sealed class QueueOcrEngine(Queue<string> responses) : IOcrEngine
+    {
+        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(responses.Count > 0 ? responses.Dequeue() : string.Empty);
         }
     }
 }

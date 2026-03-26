@@ -5,6 +5,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows.Media.Imaging;
+using OpenCvSharp;
+using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.App.Wpf.Helpers;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
@@ -24,6 +26,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _statusMessage = "Capture a visible PokerClient table window to preview it.";
     private string _captureMetadata = "No capture metadata available yet.";
     private CapturedImage? _capturedImage;
+    private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
 
     public MainViewModel(
         IScreenshotService screenshotService,
@@ -36,6 +39,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<ExtractedField> ExtractedFields { get; } = [];
+
+    public ObservableCollection<SeatRoiDebugViewModel> SeatRoiDebugItems { get; } = [];
 
     public BitmapImage? PreviewImage
     {
@@ -77,6 +82,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+
+    public string SeatRoiStatus
+    {
+        get => _seatRoiStatus;
+        private set
+        {
+            _seatRoiStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string CaptureMetadata
     {
         get => _captureMetadata;
@@ -98,6 +114,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ExtractedFields.Clear();
             XmlContent = "Capture complete. Generate XML to parse the current screenshot up to hero's first action.";
             StatusMessage = $"Captured {_capturedImage.WindowTitle ?? "window"} at {_capturedImage.CapturedAtUtc:O}.";
+            BuildSeatRoiDebugArtifacts(_capturedImage);
         }
         catch (Exception exception)
         {
@@ -142,6 +159,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ExtractedFields.Clear();
         XmlContent = "Screenshot uploaded. Generate XML to parse the current screenshot up to hero's first action.";
         StatusMessage = $"Loaded screenshot '{Path.GetFileName(filePath)}' ({bitmap.PixelWidth}x{bitmap.PixelHeight}).";
+        BuildSeatRoiDebugArtifacts(_capturedImage);
 
         return Task.CompletedTask;
     }
@@ -184,6 +202,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusMessage = workflowResult.Success
             ? "Pre-hero XML generated from the current screenshot."
             : string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("Workflow completed with warnings."));
+
+        TryLoadSeatOcrSummary(_capturedImage);
     }
 
     private void ApplyExtractionResult(ExtractionResult extractionResult)
@@ -231,6 +251,89 @@ public sealed class MainViewModel : INotifyPropertyChanged
             BitmapCacheOption.OnLoad);
         return decoder.Frames.FirstOrDefault()
             ?? throw new InvalidOperationException("Unable to read screenshot file bytes.");
+    }
+
+
+
+    private void BuildSeatRoiDebugArtifacts(CapturedImage capturedImage)
+    {
+        SeatRoiDebugItems.Clear();
+
+        var layout = new SixMaxTableVisionLayout();
+        var rois = layout.GetSeatRois(capturedImage.Width, capturedImage.Height);
+
+
+        foreach (var seat in rois)
+        {
+            var fullBounds = BuildSeatBounds(seat);
+            SeatRoiDebugItems.Add(new SeatRoiDebugViewModel
+            {
+                Seat = seat.Seat,
+                OccupancyLabel = $"Seat {seat.Seat}",
+                FullRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, fullBounds)),
+                NameRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.NameRoi)),
+                StackRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.StackRoi)),
+                BetRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.BetRoi)),
+                NameBounds = FormatBounds(seat.NameRoi),
+                StackBounds = FormatBounds(seat.StackRoi),
+                BetBounds = FormatBounds(seat.BetRoi)
+            });
+        }
+
+        SeatRoiStatus = $"Showing {SeatRoiDebugItems.Count} seat ROI panels (full + name/stack/bet crops).";
+    }
+
+    private void TryLoadSeatOcrSummary(CapturedImage? capturedImage)
+    {
+        if (capturedImage is null)
+        {
+            return;
+        }
+
+        var timestamp = (capturedImage.CapturedAtUtc == default ? DateTime.UtcNow : capturedImage.CapturedAtUtc).ToString("yyyyMMdd_HHmmssfff");
+        var summaryPath = Path.Combine("debug", "output", timestamp, "seat_ocr_summary.txt");
+        if (File.Exists(summaryPath))
+        {
+            SeatRoiStatus = File.ReadAllText(summaryPath);
+        }
+    }
+
+    private static BitmapImage? ToBitmap(byte[] bytes)
+    {
+        return bytes.Length == 0 ? null : BitmapImageFactory.Create(bytes);
+    }
+
+    private static byte[] CropRoi(byte[] sourceBytes, System.Drawing.Rectangle roi)
+    {
+        using var source = Cv2.ImDecode(sourceBytes, ImreadModes.Color);
+        if (source.Empty())
+        {
+            return [];
+        }
+
+        var bounded = new Rect(roi.X, roi.Y, roi.Width, roi.Height).Intersect(new Rect(0, 0, source.Width, source.Height));
+        if (bounded.Width <= 0 || bounded.Height <= 0)
+        {
+            return [];
+        }
+
+        using var crop = new Mat(source, bounded);
+        Cv2.ImEncode(".png", crop, out var encoded);
+        return encoded;
+    }
+
+    private static System.Drawing.Rectangle BuildSeatBounds(SeatVisionRoi seat)
+    {
+        var left = new[] { seat.OccupancyRoi.Left, seat.NameRoi.Left, seat.StackRoi.Left, seat.BetRoi.Left }.Min();
+        var top = new[] { seat.OccupancyRoi.Top, seat.NameRoi.Top, seat.StackRoi.Top, seat.BetRoi.Top }.Min();
+        var right = new[] { seat.OccupancyRoi.Right, seat.NameRoi.Right, seat.StackRoi.Right, seat.BetRoi.Right }.Max();
+        var bottom = new[] { seat.OccupancyRoi.Bottom, seat.NameRoi.Bottom, seat.StackRoi.Bottom, seat.BetRoi.Bottom }.Max();
+        return System.Drawing.Rectangle.FromLTRB(left, top, right, bottom);
+    }
+
+    private static string FormatBounds(System.Drawing.Rectangle roi)
+    {
+        return $"x={roi.X}, y={roi.Y}, w={roi.Width}, h={roi.Height}";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

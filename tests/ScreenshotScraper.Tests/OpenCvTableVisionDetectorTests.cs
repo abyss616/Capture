@@ -20,7 +20,7 @@ public sealed class OpenCvTableVisionDetectorTests
         var result = detector.Detect(image, BuildPlayers());
 
         Assert.Equal(2, result.DealerSeat);
-        Assert.True(result.DealerConfidence > 0.58);
+        Assert.True(result.DealerConfidence > 0.42);
     }
 
     [Fact]
@@ -57,16 +57,16 @@ public sealed class OpenCvTableVisionDetectorTests
 
         Assert.Equal(6, result.SeatSnapshots.Count);
         Assert.Equal([1, 3, 4, 6], result.SeatSnapshots.Where(snapshot => snapshot.IsOccupied).Select(snapshot => snapshot.SeatNumber).OrderBy(seat => seat).ToList());
-        Assert.All(result.SeatSnapshots, snapshot => Assert.Equal(snapshot.DealerScore >= 0.58, snapshot.DealerThresholdPassed));
+        Assert.All(result.SeatSnapshots, snapshot => Assert.Equal(snapshot.DealerScore >= 0.42, snapshot.DealerThresholdPassed));
     }
     [Fact]
-    public void Detect_DoesNotGuessDealer_WhenTemplateMatchBelowThreshold()
+    public void Detect_DoesNotGuessDealer_WhenCompositeRankingIsTooWeak()
     {
         var detector = new OpenCvTableVisionDetector(
             new SixMaxTableVisionLayout(),
             new OpenCvTableVisionDetectorOptions
             {
-                DealerTemplateThreshold = 0.92,
+                DealerSeatMinimumScore = 0.99,
                 DealerMarginThreshold = 0.1
             });
 

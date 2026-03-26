@@ -27,4 +27,30 @@ public sealed class FixedLayoutSeatSnapshotExtractorTests
         Assert.Equal("97", hero.Chips);
         Assert.Contains(players, player => player.Seat == 4 && player.Dealer);
     }
+
+    [Fact]
+    public void Extract_DoesNotUseGlobalSequentialFallback_WhenSeatHeadersAreMissing()
+    {
+        var extractor = new FixedLayoutSeatSnapshotExtractor();
+        var rawText = "VillainA 101 BB VillainB 102 BB VillainC 103 BB";
+
+        var players = extractor.Extract(new CapturedImage(), rawText);
+
+        Assert.Empty(players);
+    }
+
+    [Fact]
+    public void Extract_RejectsSuspiciousTruncatedNumericSeatNames()
+    {
+        var extractor = new FixedLayoutSeatSnapshotExtractor();
+        var rawText = """
+            [Seat 1] 994 98.50 BB 0.50 BB
+            [Seat 2] jkl102 111 BB
+            """;
+
+        var players = extractor.Extract(new CapturedImage(), rawText);
+
+        Assert.Equal(string.Empty, players.Single(player => player.Seat == 1).Name);
+        Assert.Equal("jkl102", players.Single(player => player.Seat == 2).Name);
+    }
 }

@@ -132,6 +132,90 @@ public sealed class PreHeroScreenshotParserTests
         Assert.Equal(1, snapshot.Players.Count(player => player.Dealer));
     }
 
+
+    [Fact]
+    public async Task ParseAsync_UsesDealerRelativeSeatOrderingForOutputList()
+    {
+        var parser = CreateParser(
+            """
+            [Seat 1] HeroBottom 97 BB
+            [Seat 2] SeatTwo 80 BB
+            [Seat 4] SeatFour 101 BB
+            [Seat 6] SeatSix 111 BB dealer
+            """,
+            "Q♠ K♣",
+            new StubTableVisionDetector(new TableDetectionResult
+            {
+                DealerSeat = 6,
+                DealerDetected = true,
+                DealerConfidence = 0.95,
+                OccupiedSeats = [1, 2, 4, 6],
+                PerSeatDiagnostics = new Dictionary<int, SeatDetectionDiagnostics>()
+            }));
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.Equal([6, 1, 2, 4], snapshot.Players.Select(player => player.Seat).ToList());
+    }
+
+    [Fact]
+    public async Task ParseAsync_MarksOnlyOneSeatUnknown_WhenExactlyOneVisibleSeatNameIsUnreadable()
+    {
+        var parser = CreateParser(
+            """
+            [Seat 1] HeroBottom 97 BB
+            [Seat 2] 994 100 BB 1 BB
+            [Seat 3] jkl102 110 BB
+            [Seat 4] VillainFour 120 BB
+            [Seat 5] VillainFive 130 BB
+            [Seat 6] VillainSix 140 BB dealer
+            """);
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+        var unknownSeats = snapshot.Players.Where(player => !player.IsHero && player.Name.EndsWith("_Unknown", StringComparison.Ordinal)).ToList();
+
+        Assert.Single(unknownSeats);
+        Assert.Equal(2, unknownSeats[0].Seat);
+        Assert.Contains(snapshot.Players, player => player.Seat == 3 && player.Name == "jkl102");
+    }
+
+    [Fact]
+    public async Task ParseAsync_UsesSeatLocalRoiOcr_WhenGlobalSeatHeadersAreMissing()
+    {
+        var responses = new Queue<string>(new[]
+        {
+            string.Empty, // full-table OCR
+            string.Empty, // hero card OCR
+            "HeroBottom", "97 BB", "",          // seat 1
+            "jkl102", "238.50 BB", "0.50 BB",   // seat 2
+            "Beng1994", "98.50 BB", "",         // seat 3
+            "Wulverate", "223.50 BB", "1 BB",   // seat 4
+            "Urlish", "73 BB", "",              // seat 5
+            "195030", "100 BB", ""              // seat 6
+        });
+
+        var parser = new PreHeroScreenshotParser(
+            new QueueOcrEngine(responses),
+            new OcrTableHeaderExtractor(),
+            new FixedLayoutSeatSnapshotExtractor(),
+            new OcrHeroCardExtractor(),
+            new StubTableVisionDetector(new TableDetectionResult
+            {
+                DealerSeat = 1,
+                DealerDetected = true,
+                DealerConfidence = 0.9,
+                OccupiedSeats = [1, 2, 3, 4, 5, 6],
+                PerSeatDiagnostics = new Dictionary<int, SeatDetectionDiagnostics>()
+            }),
+            new PreHeroActionInferencer());
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.Contains(snapshot.Players, player => player.Seat == 2 && player.Name == "jkl102");
+        Assert.Contains(snapshot.Players, player => player.Seat == 3 && player.Name == "Beng1994");
+        Assert.DoesNotContain(snapshot.Players, player => player.Name.EndsWith("_Unknown", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ParseAsync_UsesExpandedHeroCardCropRegionForSecondOcrPass()
     {
@@ -224,6 +308,15 @@ public sealed class PreHeroScreenshotParserTests
             Calls.Add(image);
             _callCount++;
             return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+        }
+    }
+
+    private sealed class QueueOcrEngine(Queue<string> responses) : IOcrEngine
+    {
+        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(responses.Count > 0 ? responses.Dequeue() : string.Empty);
         }
     }
 }

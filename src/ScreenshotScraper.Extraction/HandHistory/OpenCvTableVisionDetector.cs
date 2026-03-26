@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OpenCvSharp;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
@@ -100,6 +101,7 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
             DrawSummary(debugFrame, seatRois, seatSnapshots, dealerSeat);
             SaveDebugFrame(debugFrame, image.CapturedAtUtc);
             SaveSeatSummary(image.CapturedAtUtc, seatSnapshots, dealerSeat, dealerDecision.DecisionNotes);
+            SaveSeatDebugJson(image.CapturedAtUtc, seatRois, seatSnapshots, dealerSeat);
             debugFrame.Dispose();
         }
 
@@ -220,6 +222,9 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
     {
         Cv2.Rectangle(frame, ToRect(seat.DealerButtonSearchRoi), Scalar.Orange, 2);
         Cv2.Rectangle(frame, ToRect(seat.OccupancyRoi), Scalar.Cyan, 2);
+        Cv2.Rectangle(frame, ToRect(seat.NameRoi), new Scalar(144, 238, 144), 1);
+        Cv2.Rectangle(frame, ToRect(seat.StackRoi), new Scalar(230, 216, 173), 1);
+        Cv2.Rectangle(frame, ToRect(seat.BetRoi), Scalar.Magenta, 1);
         Cv2.PutText(frame, $"S{seatNo} D:{dealer.CompositeScore:0.00} Y:{dealer.YellowRatioScore:0.00} C:{dealer.ContourScore:0.00} T:{dealer.TemplateScore:0.00} O:{occupancyScore:0.00} {(occupied ? "occ" : "empty")}", new Point(seat.OccupancyRoi.X, Math.Max(15, seat.OccupancyRoi.Y - 4)), HersheyFonts.HersheySimplex, 0.4, Scalar.White, 1);
     }
 
@@ -259,6 +264,22 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
         Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_dealer.png"), dealerCrop);
         using var occupancyCrop = new Mat(frame, ToRect(seat.OccupancyRoi));
         Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_occupancy.png"), occupancyCrop);
+        using var nameCrop = new Mat(frame, ToRect(seat.NameRoi));
+        Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_name.png"), nameCrop);
+        using var stackCrop = new Mat(frame, ToRect(seat.StackRoi));
+        Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_stack.png"), stackCrop);
+        using var betCrop = new Mat(frame, ToRect(seat.BetRoi));
+        Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_bet.png"), betCrop);
+
+        using var gray = new Mat();
+        Cv2.CvtColor(nameCrop, gray, ColorConversionCodes.BGR2GRAY);
+        using var upscaled = new Mat();
+        Cv2.Resize(gray, upscaled, new OpenCvSharp.Size(), 2, 2, InterpolationFlags.Cubic);
+        using var threshold = new Mat();
+        Cv2.Threshold(upscaled, threshold, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
+        using var denoised = new Mat();
+        Cv2.MedianBlur(threshold, denoised, 3);
+        Cv2.ImWrite(Path.Combine(directory, $"seat_{seat.Seat}_name_preprocessed.png"), denoised);
     }
 
     private void SaveDealerSeatDebugArtifacts(DealerSeatScore dealerSeatScore, DateTime capturedAt)
@@ -303,6 +324,27 @@ public sealed class OpenCvTableVisionDetector : ITableVisionDetector
                 $"Seat {snapshot.SeatNumber}: occupied={snapshot.IsOccupied}, occScore={snapshot.OccupancyScore:0.000}, dealerScore={snapshot.DealerScore:0.000}, dealerPass={snapshot.DealerThresholdPassed}, notes={snapshot.Diagnostics}"));
 
         File.WriteAllLines(Path.Combine(directory, "seat_summary.txt"), lines);
+    }
+
+
+    private void SaveSeatDebugJson(DateTime capturedAt, IReadOnlyList<SeatVisionRoi> seatRois, IReadOnlyList<SeatSnapshot> seatSnapshots, int? dealerSeat)
+    {
+        var directory = EnsureDebugDirectory(capturedAt);
+        var payload = seatRois
+            .OrderBy(seat => seat.Seat)
+            .Select(seat => new
+            {
+                seat = seat.Seat,
+                isDealer = dealerSeat.HasValue && seat.Seat == dealerSeat.Value,
+                occupancyRoi = seat.OccupancyRoi,
+                nameRoi = seat.NameRoi,
+                stackRoi = seat.StackRoi,
+                betRoi = seat.BetRoi,
+                diagnostics = seatSnapshots.First(snapshot => snapshot.SeatNumber == seat.Seat)
+            })
+            .ToList();
+
+        File.WriteAllText(Path.Combine(directory, "seat_debug.json"), JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private string EnsureDebugDirectory(DateTime capturedAt)

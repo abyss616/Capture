@@ -23,4 +23,6 @@ public sealed class PartialHandHistorySnapshot
     public ExtractedField? DealerSeatField { get; init; }
 
     public ExtractedField? HeroPositionField { get; init; }
+
+    public string SeatLocalOcrDiagnostics { get; init; } = string.Empty;
 }

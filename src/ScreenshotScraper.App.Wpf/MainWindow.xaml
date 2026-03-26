@@ -5,10 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="ScreenshotScraper"
-        Height="760"
-        Width="1200"
-        MinHeight="600"
-        MinWidth="960">
+        Height="900"
+        Width="1320"
+        MinHeight="700"
+        MinWidth="1080">
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -17,7 +17,7 @@
             <RowDefinition Height="16" />
             <RowDefinition Height="*" />
             <RowDefinition Height="16" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="2*" />
         </Grid.RowDefinitions>
 
         <StackPanel Orientation="Horizontal">
@@ -103,14 +103,66 @@
             </DataGrid>
         </GroupBox>
 
-        <GroupBox Grid.Row="6" Header="XML / Status">
-            <TextBox Text="{Binding XmlContent, Mode=OneWay}"
-                     IsReadOnly="True"
-                     AcceptsReturn="True"
-                     VerticalScrollBarVisibility="Auto"
-                     HorizontalScrollBarVisibility="Auto"
-                     TextWrapping="Wrap"
-                     FontFamily="Consolas" />
+        <GroupBox Grid.Row="6" Header="XML / Seat ROI Debug">
+            <TabControl>
+                <TabItem Header="XML / Status">
+                    <TextBox Text="{Binding XmlContent, Mode=OneWay}"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             TextWrapping="Wrap"
+                             FontFamily="Consolas" />
+                </TabItem>
+                <TabItem Header="Seat ROI Debug">
+                    <DockPanel Margin="8">
+                        <TextBox DockPanel.Dock="Top"
+                                 Margin="0,0,0,8"
+                                 Text="{Binding SeatRoiStatus}"
+                                 FontFamily="Consolas"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="80" />
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding SeatRoiDebugItems}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="3" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="#D0D0D0" BorderThickness="1" Padding="6" Margin="4">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding OccupancyLabel}" FontWeight="Bold" Margin="0,0,0,4" />
+                                                <Image Source="{Binding FullRoiImage}" Height="90" Stretch="Uniform" Margin="0,0,0,4" />
+                                                <WrapPanel>
+                                                    <StackPanel Margin="0,0,6,0">
+                                                        <TextBlock Text="Name ROI" FontSize="11" />
+                                                        <Image Source="{Binding NameRoiImage}" Height="42" Width="110" Stretch="Uniform" />
+                                                        <TextBlock Text="{Binding NameBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
+                                                    </StackPanel>
+                                                    <StackPanel Margin="0,0,6,0">
+                                                        <TextBlock Text="Stack ROI" FontSize="11" />
+                                                        <Image Source="{Binding StackRoiImage}" Height="42" Width="110" Stretch="Uniform" />
+                                                        <TextBlock Text="{Binding StackBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock Text="Bet ROI" FontSize="11" />
+                                                        <Image Source="{Binding BetRoiImage}" Height="42" Width="110" Stretch="Uniform" />
+                                                        <TextBlock Text="{Binding BetBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
+                                                    </StackPanel>
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
         </GroupBox>
     </Grid>
 </Window>

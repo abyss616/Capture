@@ -1,3 +1,4 @@
+using OpenCvSharp;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
@@ -5,7 +6,7 @@ using ScreenshotScraper.Core.Models.HandHistory;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Text.RegularExpressions;
+using System.Text;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
@@ -49,8 +50,8 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
-        var seatLocalPlayers = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);
-        var mergedPlayers = MergeSeatPlayers(basePlayers, seatLocalPlayers);
+        var seatLocalResult = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);
+        var mergedPlayers = MergeSeatPlayers(basePlayers, seatLocalResult.Players);
         var dealerSeatField = BuildDealerSeatField(tableDetection);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
@@ -71,10 +72,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             GameCodeField = header.GameCodeField,
             HeroNameField = heroNameField,
             DealerSeatField = dealerSeatField,
-            HeroPositionField = heroPositionField
+            HeroPositionField = heroPositionField,
+            SeatLocalOcrDiagnostics = seatLocalResult.Diagnostics
         };
     }
-
 
     private static ExtractedField BuildDealerSeatField(TableDetectionResult tableDetection)
     {
@@ -321,11 +322,11 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return trimmed.Any(char.IsLetter);
     }
 
-    private async Task<IReadOnlyList<SnapshotPlayer>> ExtractSeatPlayersFromRoisAsync(CapturedImage image, TableDetectionResult detection, CancellationToken cancellationToken)
+    private async Task<SeatLocalExtractionResult> ExtractSeatPlayersFromRoisAsync(CapturedImage image, TableDetectionResult detection, CancellationToken cancellationToken)
     {
         if (image.ImageBytes.Length == 0)
         {
-            return [];
+            return new SeatLocalExtractionResult([], "No screenshot bytes available for seat-local OCR.");
         }
 
         var occupiedSeats = detection.OccupiedSeats
@@ -335,22 +336,31 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
 
         var seatRois = new SixMaxTableVisionLayout().GetSeatRois(image.Width, image.Height);
         var players = new List<SnapshotPlayer>();
+        var diagnostics = new List<string>();
+        var debugDirectory = EnsureSeatLocalDebugDirectory(image.CapturedAtUtc);
 
         foreach (var seat in seatRois)
         {
-            if (occupiedSeats.Count > 0 && !occupiedSeats.Contains(seat.Seat))
-            {
-                continue;
-            }
+            var isOccupied = occupiedSeats.Count == 0 || occupiedSeats.Contains(seat.Seat);
+            var seatFullBounds = BuildSeatBounds(seat);
 
-            var nameText = await ReadSeatRoiTextAsync(image, seat.NameRoi, cancellationToken).ConfigureAwait(false);
-            var stackText = await ReadSeatRoiTextAsync(image, seat.StackRoi, cancellationToken).ConfigureAwait(false);
-            var betText = await ReadSeatRoiTextAsync(image, seat.BetRoi, cancellationToken).ConfigureAwait(false);
-            var name = ExtractNameCandidate(nameText);
-            var chips = ExtractNumberWithOptionalBb(stackText);
-            var bet = ExtractNumberWithOptionalBb(betText);
+            var nameRead = await ReadSeatRoiTextAsync(image, seat.NameRoi, SeatLocalOcrPreprocessor.PreprocessNameRoi, cancellationToken).ConfigureAwait(false);
+            var stackRead = await ReadSeatRoiTextAsync(image, seat.StackRoi, SeatLocalOcrPreprocessor.PreprocessNumericRoi, cancellationToken).ConfigureAwait(false);
+            var betRead = await ReadSeatRoiTextAsync(image, seat.BetRoi, SeatLocalOcrPreprocessor.PreprocessNumericRoi, cancellationToken).ConfigureAwait(false);
 
-            Debug.WriteLine($"[SeatLocalOCR] seat={seat.Seat}; nameRaw='{nameText}'; stackRaw='{stackText}'; betRaw='{betText}'; parsedName='{name}'; parsedStack='{chips}'; parsedBet='{bet}'");
+            var name = SeatLocalTextParser.ParseName(nameRead.OcrText);
+            var chips = SeatLocalTextParser.ParseNumber(stackRead.OcrText);
+            var bet = SeatLocalTextParser.ParseNumber(betRead.OcrText);
+
+            var nameRejection = IsReliableNonHeroName(name) || seat.Seat == HeroSeatIndex ? string.Empty : "name rejected by reliability filter";
+            var stackRejection = chips.Length == 0 && !string.IsNullOrWhiteSpace(stackRead.OcrText) ? "numeric parse failed" : string.Empty;
+            var betRejection = bet.Length == 0 && !string.IsNullOrWhiteSpace(betRead.OcrText) ? "numeric parse failed" : string.Empty;
+
+            SaveSeatLocalDebugArtifacts(image, debugDirectory, seat, seatFullBounds, nameRead, stackRead, betRead);
+
+            diagnostics.Add($"Seat {seat.Seat}: occupied={isOccupied}; full={FormatRect(seatFullBounds)}; name={FormatRect(seat.NameRoi)} raw='{Sanitize(nameRead.OcrText)}' parsed='{name}' reject='{nameRejection}'; stack={FormatRect(seat.StackRoi)} raw='{Sanitize(stackRead.OcrText)}' parsed='{chips}' reject='{stackRejection}'; bet={FormatRect(seat.BetRoi)} raw='{Sanitize(betRead.OcrText)}' parsed='{bet}' reject='{betRejection}'");
+
+            Debug.WriteLine($"[SeatLocalOCR] seat={seat.Seat}; occupied={isOccupied}; full={FormatRect(seatFullBounds)}; nameRoi={FormatRect(seat.NameRoi)}; stackRoi={FormatRect(seat.StackRoi)}; betRoi={FormatRect(seat.BetRoi)}; nameRaw='{Sanitize(nameRead.OcrText)}'; stackRaw='{Sanitize(stackRead.OcrText)}'; betRaw='{Sanitize(betRead.OcrText)}'; parsedName='{name}'; parsedStack='{chips}'; parsedBet='{bet}'; nameReject='{nameRejection}'; stackReject='{stackRejection}'; betReject='{betRejection}'");
 
             players.Add(new SnapshotPlayer
             {
@@ -371,58 +381,72 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             });
         }
 
-        return players;
+        var diagnosticsText = string.Join(Environment.NewLine, diagnostics);
+        File.WriteAllText(Path.Combine(debugDirectory, "seat_ocr_summary.txt"), diagnosticsText);
+        return new SeatLocalExtractionResult(players, diagnosticsText);
     }
 
-    private async Task<string> ReadSeatRoiTextAsync(CapturedImage image, Rectangle roi, CancellationToken cancellationToken)
+    private async Task<SeatRoiReadResult> ReadSeatRoiTextAsync(
+        CapturedImage image,
+        Rectangle roi,
+        Func<byte[], byte[]> preprocess,
+        CancellationToken cancellationToken)
     {
         var cropped = CropRegion(image, roi);
         if (cropped.ImageBytes.Length == 0)
         {
-            return string.Empty;
+            return new SeatRoiReadResult(cropped, new CapturedImage(), string.Empty);
         }
 
-        return await _ocrEngine.ReadTextAsync(cropped, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static string ExtractNameCandidate(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var cleaned = value.Replace("\r", " ").Replace("\n", " ");
-        foreach (Match match in Regex.Matches(cleaned, @"[A-Za-z0-9_]{3,}"))
-        {
-            var token = match.Value.Trim();
-            if (token.Equals("TIME", StringComparison.OrdinalIgnoreCase)
-                || token.Equals("BANK", StringComparison.OrdinalIgnoreCase)
-                || token.Equals("POT", StringComparison.OrdinalIgnoreCase)
-                || token.Equals("MAX", StringComparison.OrdinalIgnoreCase))
+        var preprocessedBytes = preprocess(cropped.ImageBytes);
+        var preprocessed = preprocessedBytes.Length == 0
+            ? new CapturedImage()
+            : new CapturedImage
             {
-                continue;
-            }
+                ImageBytes = preprocessedBytes,
+                Width = cropped.Width,
+                Height = cropped.Height,
+                CapturedAtUtc = image.CapturedAtUtc,
+                WindowTitle = image.WindowTitle
+            };
 
-            if (IsReliableNonHeroName(token))
-            {
-                return token;
-            }
-        }
-
-        return string.Empty;
+        var ocrInput = preprocessed.ImageBytes.Length > 0 ? preprocessed : cropped;
+        var text = await _ocrEngine.ReadTextAsync(ocrInput, cancellationToken).ConfigureAwait(false);
+        return new SeatRoiReadResult(cropped, preprocessed, text);
     }
 
-    private static string ExtractNumberWithOptionalBb(string? value)
+    private static Rectangle BuildSeatBounds(SeatVisionRoi seat)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var match = Regex.Match(value, @"(?<num>\d+(?:[\.,]\d+)?)\s*(?:BB)?", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups["num"].Value.Replace(',', '.') : string.Empty;
+        var left = new[] { seat.NameRoi.Left, seat.StackRoi.Left, seat.BetRoi.Left, seat.OccupancyRoi.Left }.Min();
+        var top = new[] { seat.NameRoi.Top, seat.StackRoi.Top, seat.BetRoi.Top, seat.OccupancyRoi.Top }.Min();
+        var right = new[] { seat.NameRoi.Right, seat.StackRoi.Right, seat.BetRoi.Right, seat.OccupancyRoi.Right }.Max();
+        var bottom = new[] { seat.NameRoi.Bottom, seat.StackRoi.Bottom, seat.BetRoi.Bottom, seat.OccupancyRoi.Bottom }.Max();
+        return Rectangle.FromLTRB(left, top, right, bottom);
     }
+
+    private static void SaveSeatLocalDebugArtifacts(CapturedImage source, string debugDirectory, SeatVisionRoi seat, Rectangle fullBounds, SeatRoiReadResult nameRead, SeatRoiReadResult stackRead, SeatRoiReadResult betRead)
+    {
+        var fullCrop = CropRegion(source, fullBounds);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_full.png"), fullCrop.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_name_raw.png"), nameRead.Raw.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_name_preprocessed.png"), nameRead.Preprocessed.ImageBytes.Length == 0 ? nameRead.Raw.ImageBytes : nameRead.Preprocessed.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_stack_raw.png"), stackRead.Raw.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_stack_preprocessed.png"), stackRead.Preprocessed.ImageBytes.Length == 0 ? stackRead.Raw.ImageBytes : stackRead.Preprocessed.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_bet_raw.png"), betRead.Raw.ImageBytes);
+        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_bet_preprocessed.png"), betRead.Preprocessed.ImageBytes.Length == 0 ? betRead.Raw.ImageBytes : betRead.Preprocessed.ImageBytes);
+    }
+
+    private static string EnsureSeatLocalDebugDirectory(DateTime capturedAt)
+    {
+        var timestamp = (capturedAt == default ? DateTime.UtcNow : capturedAt).ToString("yyyyMMdd_HHmmssfff");
+        var path = Path.Combine("debug", "output", timestamp);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static string FormatRect(Rectangle rect) => $"({rect.Left},{rect.Top},{rect.Width},{rect.Height})";
+
+    private static string Sanitize(string? value) => (value ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
 
     private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string heroCards)
     {
@@ -513,34 +537,35 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             return new CapturedImage();
         }
 
-        try
-        {
-            using var sourceStream = new MemoryStream(image.ImageBytes);
-            using var sourceBitmap = new Bitmap(sourceStream);
-            var boundedRegion = Rectangle.Intersect(new Rectangle(0, 0, sourceBitmap.Width, sourceBitmap.Height), region);
-            if (boundedRegion.Width <= 0 || boundedRegion.Height <= 0)
-            {
-                return new CapturedImage();
-            }
-
-            using var croppedBitmap = sourceBitmap.Clone(boundedRegion, sourceBitmap.PixelFormat);
-            using var outputStream = new MemoryStream();
-            croppedBitmap.Save(outputStream, ImageFormat.Png);
-
-            return new CapturedImage
-            {
-                ImageBytes = outputStream.ToArray(),
-                Width = boundedRegion.Width,
-                Height = boundedRegion.Height,
-                CapturedAtUtc = image.CapturedAtUtc,
-                WindowTitle = image.WindowTitle,
-                WindowLeft = image.WindowLeft + boundedRegion.X,
-                WindowTop = image.WindowTop + boundedRegion.Y
-            };
-        }
-        catch
+        using var source = Cv2.ImDecode(image.ImageBytes, ImreadModes.Color);
+        if (source.Empty())
         {
             return new CapturedImage();
         }
+
+        var bounded = new OpenCvSharp.Rect(region.X, region.Y, region.Width, region.Height);
+        bounded = bounded.Intersect(new OpenCvSharp.Rect(0, 0, source.Width, source.Height));
+        if (bounded.Width <= 0 || bounded.Height <= 0)
+        {
+            return new CapturedImage();
+        }
+
+        using var cropped = new Mat(source, bounded);
+        Cv2.ImEncode(".png", cropped, out var encoded);
+
+        return new CapturedImage
+        {
+            ImageBytes = encoded,
+            Width = bounded.Width,
+            Height = bounded.Height,
+            CapturedAtUtc = image.CapturedAtUtc,
+            WindowTitle = image.WindowTitle,
+            WindowLeft = image.WindowLeft + bounded.X,
+            WindowTop = image.WindowTop + bounded.Y
+        };
     }
+
+    private sealed record SeatRoiReadResult(CapturedImage Raw, CapturedImage Preprocessed, string OcrText);
+
+    private sealed record SeatLocalExtractionResult(IReadOnlyList<SnapshotPlayer> Players, string Diagnostics);
 }

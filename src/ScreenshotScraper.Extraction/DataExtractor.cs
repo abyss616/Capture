@@ -102,6 +102,16 @@ public sealed class DataExtractor : IDataExtractor
             snapshot.DealerSeatField ?? BuildSimpleField("DealerSeat", null, false, "Dealer button was not confidently detected."),
             new ExtractedField
             {
+                Name = "SeatLocalOcrDiagnostics",
+                RawText = snapshot.SeatLocalOcrDiagnostics,
+                ParsedValue = snapshot.SeatLocalOcrDiagnostics,
+                IsValid = !string.IsNullOrWhiteSpace(snapshot.SeatLocalOcrDiagnostics),
+                Error = string.IsNullOrWhiteSpace(snapshot.SeatLocalOcrDiagnostics) ? "Seat-local OCR diagnostics were not produced." : null,
+                Confidence = string.IsNullOrWhiteSpace(snapshot.SeatLocalOcrDiagnostics) ? 0 : 0.8,
+                Reason = "Per-seat OCR diagnostics include ROI bounds, raw OCR, parsed values, and rejection causes for each seat."
+            },
+            new ExtractedField
+            {
                 Name = "ObservedPreHeroActions",
                 RawText = snapshot.Round1ObservedActions.Count.ToString(),
                 ParsedValue = string.Join(", ", snapshot.Round1ObservedActions.Select(action => action.Player).Where(player => !string.IsNullOrWhiteSpace(player))),

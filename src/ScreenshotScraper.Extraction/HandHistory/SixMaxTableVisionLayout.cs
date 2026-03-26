@@ -11,16 +11,16 @@ public sealed class SixMaxTableVisionLayout
 
     public SixMaxTableVisionLayout()
     {
-        // Seat ROI coordinates are calibrated for the 1020x717 capture reference. They assume a fixed six-max table
-        // camera angle where seat number 1 is hero (bottom-center) and seats increase clockwise.
+        // Calibrated for Betsafe 6-max table at 1020x717. Seat 1 is hero (bottom-center), seats increase clockwise.
+        // Per-seat offsets are intentional because each seat panel has slightly different perspective and HUD overlap.
         _seatRois = new Dictionary<int, SeatVisionRoi>
         {
-            [1] = new(1, new Rectangle(250, 470, 110, 90), new Rectangle(430, 510, 170, 95), new Rectangle(430, 510, 170, 36), new Rectangle(430, 546, 170, 30), new Rectangle(430, 576, 170, 30)),
-            [2] = new(2, new Rectangle(170, 440, 110, 90), new Rectangle(140, 500, 170, 95), new Rectangle(140, 500, 170, 36), new Rectangle(140, 536, 170, 30), new Rectangle(140, 566, 170, 30)),
-            [3] = new(3, new Rectangle(170, 170, 110, 90), new Rectangle(60, 190, 170, 95), new Rectangle(60, 190, 170, 36), new Rectangle(60, 226, 170, 30), new Rectangle(60, 256, 170, 30)),
-            [4] = new(4, new Rectangle(430, 150, 110, 90), new Rectangle(420, 80, 180, 95), new Rectangle(420, 80, 180, 36), new Rectangle(420, 116, 180, 30), new Rectangle(420, 146, 180, 30)),
-            [5] = new(5, new Rectangle(810, 170, 110, 90), new Rectangle(820, 190, 170, 95), new Rectangle(820, 190, 170, 36), new Rectangle(820, 226, 170, 30), new Rectangle(820, 256, 170, 30)),
-            [6] = new(6, new Rectangle(820, 440, 110, 90), new Rectangle(740, 500, 170, 95), new Rectangle(740, 500, 170, 36), new Rectangle(740, 536, 170, 30), new Rectangle(740, 566, 170, 30))
+            [1] = new(1, new Rectangle(255, 474, 120, 94), new Rectangle(425, 505, 185, 104), new Rectangle(432, 522, 165, 30), new Rectangle(432, 554, 165, 27), new Rectangle(432, 583, 165, 24)),
+            [2] = new(2, new Rectangle(165, 438, 120, 94), new Rectangle(124, 500, 192, 104), new Rectangle(134, 517, 170, 30), new Rectangle(134, 550, 170, 27), new Rectangle(134, 579, 170, 24)),
+            [3] = new(3, new Rectangle(158, 162, 120, 94), new Rectangle(56, 188, 182, 104), new Rectangle(66, 208, 165, 30), new Rectangle(66, 240, 165, 27), new Rectangle(66, 268, 165, 24)),
+            [4] = new(4, new Rectangle(428, 142, 120, 94), new Rectangle(414, 76, 192, 104), new Rectangle(426, 95, 170, 30), new Rectangle(426, 128, 170, 27), new Rectangle(426, 157, 170, 24)),
+            [5] = new(5, new Rectangle(818, 162, 120, 94), new Rectangle(806, 188, 188, 104), new Rectangle(820, 208, 164, 30), new Rectangle(820, 240, 164, 27), new Rectangle(820, 268, 164, 24)),
+            [6] = new(6, new Rectangle(812, 438, 120, 94), new Rectangle(730, 500, 196, 104), new Rectangle(748, 517, 164, 30), new Rectangle(748, 550, 164, 27), new Rectangle(748, 579, 164, 24))
         };
     }
 

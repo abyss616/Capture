@@ -2,6 +2,7 @@ using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 
@@ -175,7 +176,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             occupiedSeats.Add(heroSeat.Value);
         }
 
-        occupiedSeats = occupiedSeats.OrderBy(seat => seat).ToList();
+        occupiedSeats = BuildDealerRelativeSeatOrder(occupiedSeats, dealerSeat);
 
         var dealerIsOnOccupiedSeat = dealerSeat.HasValue && occupiedSeats.Contains(dealerSeat.Value);
 
@@ -185,10 +186,16 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 playersBySeat.TryGetValue(seat, out var extracted);
                 var isHero = heroSeat.HasValue && seat == heroSeat.Value;
 
+                var resolvedName = ResolvePlayerName(extracted, seat, isHero);
+                tableDetection.PerSeatDiagnostics.TryGetValue(seat, out var diagnostics);
+                var failure = resolvedName.EndsWith("_Unknown", StringComparison.Ordinal) ? "Name OCR missing or rejected." : string.Empty;
+
+                Debug.WriteLine($"[SeatMap] seat={seat}; occupied={(diagnostics?.IsOccupied ?? false)}; occScore={(diagnostics?.OccupancyScore ?? 0):0.000}; dealerScore={(diagnostics?.DealerScore ?? 0):0.000}; rawName='{extracted?.Name ?? string.Empty}'; parsedName='{resolvedName}'; stack='{extracted?.Chips ?? string.Empty}'; bet='{extracted?.Bet ?? string.Empty}'; failure='{failure}'");
+
                 return new SnapshotPlayer
                 {
                     Seat = seat,
-                    Name = ResolvePlayerName(extracted, seat, isHero),
+                    Name = resolvedName,
                     Chips = extracted?.Chips ?? string.Empty,
                     Dealer = dealerIsOnOccupiedSeat && seat == dealerSeat,
                     Bet = extracted?.Bet ?? string.Empty,
@@ -214,12 +221,52 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             return IsReliableHeroName(heroName) ? heroName! : GenericHeroName;
         }
 
-        if (!string.IsNullOrWhiteSpace(player?.Name))
+        if (IsReliableNonHeroName(player?.Name))
         {
-            return player.Name;
+            return player!.Name;
         }
 
         return $"Seat{seat}_Unknown";
+    }
+
+    private static List<int> BuildDealerRelativeSeatOrder(IReadOnlyCollection<int> occupiedSeats, int? dealerSeat)
+    {
+        if (!dealerSeat.HasValue || occupiedSeats.Count == 0)
+        {
+            return occupiedSeats.OrderBy(seat => seat).ToList();
+        }
+
+        return occupiedSeats
+             .OrderBy(seat => (seat - dealerSeat.Value + 6) % 6)
+            .ThenBy(seat => seat)
+            .ToList();
+    }
+
+    private static bool IsReliableNonHeroName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var trimmed = name.Trim();
+        if (trimmed.Length < 3)
+        {
+            return false;
+        }
+
+        var compact = new string(trimmed.Where(char.IsLetterOrDigit).ToArray());
+        if (compact.Length < 3)
+        {
+            return false;
+        }
+
+        if (compact.All(char.IsDigit))
+        {
+            return compact.Length >= 5;
+        }
+
+        return true;
     }
 
     private static bool IsReliableHeroName(string? name)

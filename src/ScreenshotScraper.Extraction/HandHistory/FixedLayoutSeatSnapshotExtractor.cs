@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
@@ -10,53 +11,65 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
     {
         var seatTemplates = CreateSeatTemplates().ToDictionary(player => player.Seat);
         var seatBlocks = ParseSeatBlocks(rawText);
-        if (seatBlocks.Count > 0)
+
+        if (seatBlocks.Count == 0)
         {
-            return seatBlocks
-                .OrderBy(pair => pair.Key)
-                .Select(pair => BuildSeatSnapshot(seatTemplates[pair.Key], pair.Value))
-                .Where(IsOccupiedSeat)
-                .ToList();
+            Debug.WriteLine("[SeatExtract] No seat-local OCR blocks were detected; skipping global order fallback.");
+            return [];
         }
 
-        var entries = SeatEntryRegex().Matches(rawText ?? string.Empty)
-            .Cast<Match>()
-            .Where(match => match.Success)
-            .Select(match => new
-            {
-                Name = match.Groups["name"].Value.Trim(),
-                Chips = NormalizeNumber(match.Groups["chips"].Value),
-                Bet = NormalizeNumber(match.Groups["bet"].Value),
-                IsFolded = FoldRegex().IsMatch(match.Value)
-            })
-            .Take(seatTemplates.Count)
-            .ToList();
-
-        var players = new List<SnapshotPlayer>(entries.Count);
-        for (var index = 0; index < entries.Count; index++)
+        var extractedSeats = new List<SnapshotPlayer>();
+        foreach (var (seatNumber, seatText) in seatBlocks.OrderBy(pair => pair.Key))
         {
-            var seatTemplate = seatTemplates[index + 1];
-            var entry = entries[index];
-            players.Add(new SnapshotPlayer
+            if (!seatTemplates.TryGetValue(seatNumber, out var template))
             {
-                Seat = seatTemplate.Seat,
-                IsHero = seatTemplate.IsHero,
-                Dealer = seatTemplate.Dealer,
-                Name = entry.Name,
-                Chips = entry.Chips,
-                Bet = entry.Bet,
-                Win = string.Empty,
-                Muck = string.Empty,
-                Cashout = string.Empty,
-                CashoutFee = string.Empty,
-                RakeAmount = string.Empty,
-                Position = seatTemplate.Position,
-                AppearsFolded = entry.IsFolded,
-                HasVisibleCards = seatTemplate.HasVisibleCards
-            });
+                continue;
+            }
+
+            var snapshot = ExtractSeatSnapshotForSeat(template, seatText);
+            if (IsOccupiedSeat(snapshot))
+            {
+                extractedSeats.Add(snapshot);
+            }
         }
 
-        return players;
+        return extractedSeats;
+    }
+
+    private static SnapshotPlayer ExtractSeatSnapshotForSeat(SnapshotPlayer seatTemplate, string seatText)
+    {
+        var entry = SeatEntryRegex().Match(seatText);
+        var rawName = entry.Success ? entry.Groups["name"].Value.Trim() : ExtractBestNameCandidate(seatText);
+        var chips = entry.Success ? NormalizeNumber(entry.Groups["chips"].Value) : string.Empty;
+        var bet = entry.Success ? NormalizeNumber(entry.Groups["bet"].Value) : ExtractBetCandidate(seatText);
+        var parsedName = IsReliableSeatName(rawName) ? rawName : string.Empty;
+        var failureReason = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(rawName) && parsedName.Length == 0)
+        {
+            failureReason = $"Rejected suspicious name '{rawName}'.";
+        }
+
+        var snapshot = new SnapshotPlayer
+        {
+            Seat = seatTemplate.Seat,
+            IsHero = seatTemplate.IsHero,
+            Dealer = DealerRegex().IsMatch(seatText),
+            Name = parsedName,
+            Chips = chips,
+            Bet = bet,
+            Win = string.Empty,
+            Muck = string.Empty,
+            Cashout = string.Empty,
+            CashoutFee = string.Empty,
+            RakeAmount = string.Empty,
+            Position = seatTemplate.Position,
+            AppearsFolded = FoldRegex().IsMatch(seatText),
+            HasVisibleCards = seatTemplate.HasVisibleCards
+        };
+
+        Debug.WriteLine($"[SeatExtract] seat={seatTemplate.Seat}; roi=n/a;text='{SanitizeForLog(seatText)}'; rawName='{rawName}'; parsedName='{snapshot.Name}'; chips='{snapshot.Chips}'; bet='{snapshot.Bet}'; folded={snapshot.AppearsFolded}; failure='{failureReason}'");
+        return snapshot;
     }
 
     private static bool IsOccupiedSeat(SnapshotPlayer player)
@@ -65,6 +78,33 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
             || !string.IsNullOrWhiteSpace(player.Chips)
             || !string.IsNullOrWhiteSpace(player.Bet)
             || player.IsHero;
+    }
+
+    private static bool IsReliableSeatName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var trimmed = name.Trim();
+        if (trimmed.Length < 3)
+        {
+            return false;
+        }
+
+        var alphanumeric = new string(trimmed.Where(char.IsLetterOrDigit).ToArray());
+        if (alphanumeric.Length < 3)
+        {
+            return false;
+        }
+
+        if (alphanumeric.All(char.IsDigit))
+        {
+            return alphanumeric.Length >= 5;
+        }
+
+        return true;
     }
 
     private static Dictionary<int, string> ParseSeatBlocks(string? rawText)
@@ -111,32 +151,6 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
         return result.ToDictionary(pair => pair.Key, pair => string.Join(Environment.NewLine, pair.Value));
     }
 
-    private static SnapshotPlayer BuildSeatSnapshot(SnapshotPlayer seatTemplate, string seatText)
-    {
-        var entry = SeatEntryRegex().Match(seatText);
-        var name = entry.Success ? entry.Groups["name"].Value.Trim() : ExtractBestNameCandidate(seatText);
-        var chips = entry.Success ? NormalizeNumber(entry.Groups["chips"].Value) : string.Empty;
-        var bet = entry.Success ? NormalizeNumber(entry.Groups["bet"].Value) : ExtractBetCandidate(seatText);
-
-        return new SnapshotPlayer
-        {
-            Seat = seatTemplate.Seat,
-            IsHero = seatTemplate.IsHero,
-            Dealer = DealerRegex().IsMatch(seatText),
-            Name = name,
-            Chips = chips,
-            Bet = bet,
-            Win = string.Empty,
-            Muck = string.Empty,
-            Cashout = string.Empty,
-            CashoutFee = string.Empty,
-            RakeAmount = string.Empty,
-            Position = seatTemplate.Position,
-            AppearsFolded = FoldRegex().IsMatch(seatText),
-            HasVisibleCards = seatTemplate.HasVisibleCards
-        };
-    }
-
     private static string ExtractBestNameCandidate(string seatText)
     {
         foreach (var line in seatText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
@@ -175,6 +189,11 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
         return string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : value.Replace(',', '.').Trim();
+    }
+
+    private static string SanitizeForLog(string value)
+    {
+        return value.Replace(Environment.NewLine, " | ").Trim();
     }
 
     [GeneratedRegex(@"(?<name>[A-Za-z0-9_]{3,})\s+(?<chips>\d+(?:[\.,]\d+)?)\s*BB(?:\s+(?<bet>\d+(?:[\.,]\d+)?)\s*BB)?", RegexOptions.IgnoreCase | RegexOptions.Compiled)]

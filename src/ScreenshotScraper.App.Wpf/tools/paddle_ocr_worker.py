@@ -55,6 +55,106 @@ def make_engine(
     )
 
 
+def pil_to_numpy_rgb(image: Image.Image) -> np.ndarray:
+    return np.array(image.convert("RGB"))
+
+
+import argparse
+import base64
+import json
+import os
+import sys
+from io import BytesIO
+from typing import Any
+
+import numpy as np
+from PIL import Image
+from paddleocr import PaddleOCR
+
+
+def eprint(*args: Any) -> None:
+    print(*args, file=sys.stderr, flush=True)
+
+
+def json_dumps_line(obj: dict[str, Any]) -> str:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def ok_result(text: str, confidence: float | None, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "text": text,
+        "confidence": confidence,
+        "lines": lines,
+    }
+
+
+def error_result(message: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": message,
+        "text": "",
+        "confidence": None,
+        "lines": [],
+    }
+
+
+def make_engine(
+    lang: str = "en",
+    use_doc_orientation_classify: bool = False,
+    use_doc_unwarping: bool = False,
+    use_textline_orientation: bool = False,
+) -> PaddleOCR:
+    os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+    return PaddleOCR(
+        lang=lang,
+        use_doc_orientation_classify=use_doc_orientation_classify,
+        use_doc_unwarping=use_doc_unwarping,
+        use_textline_orientation=use_textline_orientation,
+    )
+
+
+def _result_to_dict(res: Any) -> dict[str, Any]:
+    """
+    Normalize PaddleOCR 3.x result objects / dicts into a plain dict.
+    Supports:
+    - plain dict results
+    - Result objects with `.json`
+    - Result objects with `.res`
+    """
+    if isinstance(res, dict):
+        return res
+
+    json_attr = getattr(res, "json", None)
+    if isinstance(json_attr, dict):
+        return json_attr
+    if isinstance(json_attr, str):
+        try:
+            return json.loads(json_attr)
+        except Exception:
+            pass
+
+    res_attr = getattr(res, "res", None)
+    if isinstance(res_attr, dict):
+        return {"res": res_attr}
+
+    # last resort: object may expose to_json()/tolist()-style data later
+    return {}
+
+
+def _extract_recognition_payload(result_dict: dict[str, Any]) -> dict[str, Any]:
+    """
+    Handle both shapes:
+    1) {"res": {"rec_texts": [...], "rec_scores": [...], "rec_polys": [...]}}
+    2) {"rec_texts": [...], "rec_scores": [...], "rec_polys": [...]}
+    """
+    if isinstance(result_dict.get("res"), dict):
+        return result_dict["res"]
+
+    return result_dict
+
+
 def recognize_bytes(engine: PaddleOCR, image_bytes: bytes) -> dict[str, Any]:
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     image_np = np.array(image)
@@ -66,13 +166,17 @@ def recognize_bytes(engine: PaddleOCR, image_bytes: bytes) -> dict[str, Any]:
     confidences: list[float] = []
 
     for res in results or []:
-        if not isinstance(res, dict):
-            continue
+        result_dict = _result_to_dict(res)
+        data = _extract_recognition_payload(result_dict)
 
-        data = res.get("res", {}) or {}
         rec_texts = data.get("rec_texts", []) or []
         rec_scores = data.get("rec_scores", []) or []
         rec_polys = data.get("rec_polys", []) or []
+
+        # fallback for single-line text-recognition style result
+        if not rec_texts and data.get("rec_text"):
+            rec_texts = [data.get("rec_text")]
+            rec_scores = [data.get("rec_score")] if data.get("rec_score") is not None else []
 
         for i, text in enumerate(rec_texts):
             clean = str(text).strip()
@@ -117,22 +221,18 @@ def recognize_file(engine: PaddleOCR, image_path: str) -> dict[str, Any]:
 
 
 def parse_request(payload: dict[str, Any]) -> bytes:
-    image_base64 = payload.get("imageBase64") or payload.get("image_base64")
-    if image_base64:
+    if payload.get("imageBase64"):
         try:
-            return base64.b64decode(image_base64)
+            return base64.b64decode(payload["imageBase64"])
         except Exception as ex:
             raise ValueError(f"Invalid imageBase64: {ex}") from ex
 
-    image_path = payload.get("imagePath") or payload.get("image_path")
-    if image_path:
-        image_path = str(image_path)
+    if payload.get("imagePath"):
+        image_path = str(payload["imagePath"])
         with open(image_path, "rb") as f:
             return f.read()
 
-    raise ValueError(
-        "Request must contain either 'imageBase64'/'image_base64' or 'imagePath'/'image_path'."
-    )
+    raise ValueError("Request must contain either 'imageBase64' or 'imagePath'.")
 
 
 def handle_request(engine: PaddleOCR, payload: dict[str, Any]) -> dict[str, Any]:

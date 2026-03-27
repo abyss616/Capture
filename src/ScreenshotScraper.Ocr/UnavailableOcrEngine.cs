@@ -8,7 +8,7 @@ namespace ScreenshotScraper.Ocr;
 /// </summary>
 public sealed class UnavailableOcrEngine : IOcrEngine
 {
-    public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+    public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         throw new OcrEngineUnavailableException();

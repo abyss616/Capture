@@ -280,11 +280,12 @@ public sealed class PreHeroScreenshotParserTests
     {
         private int _callCount;
 
-        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _callCount++;
-            return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+            var text = _callCount == 1 ? firstResult : secondResult;
+            return Task.FromResult(new OcrResult(text, "test"));
         }
     }
 
@@ -302,21 +303,22 @@ public sealed class PreHeroScreenshotParserTests
 
         public List<CapturedImage> Calls { get; } = [];
 
-        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Calls.Add(image);
             _callCount++;
-            return Task.FromResult(_callCount == 1 ? firstResult : secondResult);
+            var text = _callCount == 1 ? firstResult : secondResult;
+            return Task.FromResult(new OcrResult(text, "test"));
         }
     }
 
     private sealed class QueueOcrEngine(Queue<string> responses) : IOcrEngine
     {
-        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(responses.Count > 0 ? responses.Dequeue() : string.Empty);
+            return Task.FromResult(new OcrResult(responses.Count > 0 ? responses.Dequeue() : string.Empty, "test"));
         }
     }
 }

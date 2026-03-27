@@ -16,4 +16,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="tools\paddle_ocr_worker.py">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

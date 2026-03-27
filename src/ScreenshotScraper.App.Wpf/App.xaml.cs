@@ -81,8 +81,14 @@ public partial class App : Application
         {
             Paddle = new PaddleOcrOptions
             {
-                PythonExecutablePath = Environment.GetEnvironmentVariable("PADDLE_PYTHON") ?? "python",
-                WorkerScriptPath = Environment.GetEnvironmentVariable("PADDLE_WORKER_SCRIPT") ?? Path.Combine("tools", "paddle_ocr_worker.py"),
+                PythonExecutablePath =
+                    Environment.GetEnvironmentVariable("PADDLE_PYTHON")
+                    ?? @"C:\Users\amd\AppData\Local\Programs\Python\Python311\python.exe",
+
+                WorkerScriptPath =
+                    Environment.GetEnvironmentVariable("PADDLE_WORKER_SCRIPT")
+                    ?? Path.Combine(AppContext.BaseDirectory, "tools", "paddle_ocr_worker.py"),
+
                 Language = Environment.GetEnvironmentVariable("PADDLE_LANGUAGE") ?? "en",
                 TimeoutMilliseconds = timeoutMs,
                 KeepWorkerWarm = keepWarm

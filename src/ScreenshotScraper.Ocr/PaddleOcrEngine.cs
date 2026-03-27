@@ -12,6 +12,7 @@ public sealed class PaddleOcrEngine : IOcrEngine, IDisposable
 {
     private readonly IPaddleOcrTransport _transport;
     private readonly PaddleOcrOptions _options;
+    private int _workerReady;
 
     public PaddleOcrEngine(PaddleOcrOptions options)
         : this(options, new PaddleOcrStdioTransport(options))
@@ -33,6 +34,8 @@ public sealed class PaddleOcrEngine : IOcrEngine, IDisposable
             return new OcrResult(string.Empty, Backend: "paddle", Confidence: null, RawPayload: "{}", Lines: [], ElapsedMilliseconds: 0);
         }
 
+        await EnsureWorkerReadyAsync(cancellationToken).ConfigureAwait(false);
+
         var sw = Stopwatch.StartNew();
         var requestJson = PaddleOcrProtocol.BuildRequest(
             image.ImageBytes,
@@ -52,6 +55,18 @@ public sealed class PaddleOcrEngine : IOcrEngine, IDisposable
             RawPayload: response.RawJson,
             Lines: response.Lines.Select(line => new OcrLineResult(line.Text, line.Confidence)).ToArray(),
             ElapsedMilliseconds: sw.ElapsedMilliseconds);
+    }
+
+
+    public async Task EnsureWorkerReadyAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _workerReady, 1, 1) == 1)
+        {
+            return;
+        }
+
+        await _transport.SelfTestAsync(cancellationToken).ConfigureAwait(false);
+        Interlocked.Exchange(ref _workerReady, 1);
     }
 
     public void Dispose()

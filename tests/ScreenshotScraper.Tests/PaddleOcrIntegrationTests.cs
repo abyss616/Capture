@@ -29,6 +29,7 @@ public sealed class PaddleOcrIntegrationTests
         Assert.Equal("paddle", result.Backend);
         Assert.Equal(0.91, result.Confidence, 3);
         Assert.NotEmpty(result.Lines!);
+        Assert.Equal(1, transport.SelfTestCount);
     }
 
     [Fact]
@@ -43,9 +44,17 @@ public sealed class PaddleOcrIntegrationTests
 
     private sealed class StubTransport(string response) : IPaddleOcrTransport
     {
+        public int SelfTestCount { get; private set; }
+
         public Task<string> InvokeAsync(string requestJson, CancellationToken cancellationToken)
         {
             return Task.FromResult(response);
+        }
+
+        public Task SelfTestAsync(CancellationToken cancellationToken)
+        {
+            SelfTestCount++;
+            return Task.CompletedTask;
         }
 
         public void Dispose()
@@ -58,6 +67,11 @@ public sealed class PaddleOcrIntegrationTests
         public Task<string> InvokeAsync(string requestJson, CancellationToken cancellationToken)
         {
             throw new TimeoutException("simulated timeout");
+        }
+
+        public Task SelfTestAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
         }
 
         public void Dispose()

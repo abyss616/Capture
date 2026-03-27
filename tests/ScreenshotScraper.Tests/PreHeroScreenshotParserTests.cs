@@ -318,7 +318,9 @@ public sealed class PreHeroScreenshotParserTests
         public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(new OcrResult(responses.Count > 0 ? responses.Dequeue() : string.Empty, "test"));
+            var shouldConsume = request.RoiType is "full_table" or "hero_cards" || string.Equals(request.Variant, "raw", StringComparison.OrdinalIgnoreCase);
+            var text = shouldConsume && responses.Count > 0 ? responses.Dequeue() : string.Empty;
+            return Task.FromResult(new OcrResult(text, "test"));
         }
     }
 }

@@ -11,7 +11,6 @@ using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
 using System.Windows;
-using System;
 
 namespace ScreenshotScraper.App.Wpf;
 
@@ -67,11 +66,6 @@ public partial class App : Application
 
     private static OcrEngineOptions BuildOcrOptions()
     {
-        var backendRaw = Environment.GetEnvironmentVariable("OCR_BACKEND");
-        var backend = string.Equals(backendRaw, "windows", StringComparison.OrdinalIgnoreCase)
-            ? OcrBackend.Windows
-            : OcrBackend.Paddle;
-
         var timeoutRaw = Environment.GetEnvironmentVariable("PADDLE_TIMEOUT_MS");
         _ = int.TryParse(timeoutRaw, out var timeoutMs);
         if (timeoutMs <= 0)
@@ -84,7 +78,6 @@ public partial class App : Application
 
         return new OcrEngineOptions
         {
-            Backend = backend,
             Paddle = new PaddleOcrOptions
             {
                 PythonExecutablePath = Environment.GetEnvironmentVariable("PADDLE_PYTHON") ?? "python",

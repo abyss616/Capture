@@ -7,17 +7,14 @@ namespace ScreenshotScraper.Tests;
 public sealed class PaddleOcrIntegrationTests
 {
     [Fact]
-    public void OcrEngineFactory_CreatesConfiguredBackend()
+    public void OcrEngineFactory_CreatesPaddleBackend()
     {
         var paddle = OcrEngineFactory.Create(new OcrEngineOptions
         {
-            Backend = OcrBackend.Paddle,
             Paddle = new PaddleOcrOptions()
         });
-        var windows = OcrEngineFactory.Create(new OcrEngineOptions { Backend = OcrBackend.Windows });
 
         Assert.IsType<PaddleOcrEngine>(paddle);
-        Assert.IsType<WindowsOcrEngine>(windows);
     }
 
     [Fact]

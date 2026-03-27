@@ -1,15 +1,7 @@
 namespace ScreenshotScraper.Ocr;
 
-public enum OcrBackend
-{
-    Windows,
-    Paddle
-}
-
 public sealed class OcrEngineOptions
 {
-    public OcrBackend Backend { get; set; } = OcrBackend.Paddle;
-
     public PaddleOcrOptions Paddle { get; set; } = new();
 }
 

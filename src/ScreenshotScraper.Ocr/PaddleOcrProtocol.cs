@@ -16,8 +16,8 @@ internal static class PaddleOcrProtocol
     {
         var payload = new
         {
-            image_base64 = Convert.ToBase64String(imageBytes),
-            roi_type = roiType,
+            imageBase64 = Convert.ToBase64String(imageBytes),
+            roiType = roiType,
             variant,
             language
         };

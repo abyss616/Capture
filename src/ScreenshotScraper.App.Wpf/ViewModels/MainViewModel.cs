@@ -42,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<ExtractedField> ExtractedFields { get; } = [];
 
     public ObservableCollection<SeatRoiDebugViewModel> SeatRoiDebugItems { get; } = [];
+    public ObservableCollection<SeatOcrInputDebugViewModel> SeatOcrInputDebugItems { get; } = [];
 
     public BitmapImage? PreviewImage
     {
@@ -260,6 +261,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void BuildSeatRoiDebugArtifacts(CapturedImage capturedImage)
     {
         SeatRoiDebugItems.Clear();
+        SeatOcrInputDebugItems.Clear();
 
         var layout = new SixMaxTableVisionLayout();
         var rois = layout.GetSeatRois(capturedImage.Width, capturedImage.Height);
@@ -268,6 +270,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         foreach (var seat in rois)
         {
             var fullBounds = BuildSeatBounds(seat);
+            var nameRawImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.NameRoi));
+            var stackRawImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.StackRoi));
+            var betRawImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.BetRoi));
             SeatRoiDebugItems.Add(new SeatRoiDebugViewModel
             {
                 Seat = seat.Seat,
@@ -275,10 +280,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 FullRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, fullBounds)),
                 Fields =
                 [
-                    BuildStaticFieldDebug("name", capturedImage, seat.NameRoi),
-                    BuildStaticFieldDebug("stack", capturedImage, seat.StackRoi),
-                    BuildStaticFieldDebug("bet", capturedImage, seat.BetRoi)
+                    BuildStaticFieldDebug("name", seat.NameRoi, nameRawImage),
+                    BuildStaticFieldDebug("stack", seat.StackRoi, stackRawImage),
+                    BuildStaticFieldDebug("bet", seat.BetRoi, betRawImage)
                 ]
+            });
+            SeatOcrInputDebugItems.Add(new SeatOcrInputDebugViewModel
+            {
+                Seat = seat.Seat,
+                SeatLabel = $"Seat {seat.Seat}",
+                NameImage = nameRawImage,
+                StackImage = stackRawImage,
+                BetImage = betRawImage
             });
         }
 
@@ -322,6 +335,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         SeatRoiDebugItems.Clear();
+        SeatOcrInputDebugItems.Clear();
         foreach (var seat in artifacts.OrderBy(item => item.SeatNumber))
         {
             var fields = seat.Fields
@@ -329,12 +343,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 .Select(BuildFieldDebugFromArtifact)
                 .ToList();
 
+            var groupedFields = seat.Fields
+                .ToDictionary(field => field.FieldType, StringComparer.OrdinalIgnoreCase);
+
             SeatRoiDebugItems.Add(new SeatRoiDebugViewModel
             {
                 Seat = seat.SeatNumber,
                 OccupancyLabel = $"Seat {seat.SeatNumber}",
                 FullRoiImage = TryLoadBitmapFromPath(seat.SeatFullImagePath),
                 Fields = new ObservableCollection<SeatFieldDebugViewModel>(fields)
+            });
+            SeatOcrInputDebugItems.Add(new SeatOcrInputDebugViewModel
+            {
+                Seat = seat.SeatNumber,
+                SeatLabel = $"Seat {seat.SeatNumber}",
+                NameImage = TryGetSelectedOcrInput(groupedFields, "name"),
+                StackImage = TryGetSelectedOcrInput(groupedFields, "stack"),
+                BetImage = TryGetSelectedOcrInput(groupedFields, "bet")
             });
         }
     }
@@ -382,9 +407,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return $"x={roi.X}, y={roi.Y}, w={roi.Width}, h={roi.Height}";
     }
 
-    private static SeatFieldDebugViewModel BuildStaticFieldDebug(string fieldType, CapturedImage capturedImage, System.Drawing.Rectangle roi)
+    private static BitmapImage? TryGetSelectedOcrInput(
+        IReadOnlyDictionary<string, SeatFieldOcrDebugResult> fieldsByType,
+        string fieldType)
     {
-        var rawImage = ToBitmap(CropRoi(capturedImage.ImageBytes, roi));
+        return fieldsByType.TryGetValue(fieldType, out var field)
+            ? TryLoadBitmapFromPath(field.SelectedOcrInputImagePath)
+            : null;
+    }
+
+    private static SeatFieldDebugViewModel BuildStaticFieldDebug(string fieldType, System.Drawing.Rectangle roi, BitmapImage? rawImage)
+    {
         return new SeatFieldDebugViewModel
         {
             FieldType = fieldType,

@@ -1,3 +1,4 @@
+using System;
 using OpenCvSharp;
 using ScreenshotScraper.Extraction.HandHistory;
 using Xunit;
@@ -25,12 +26,15 @@ public sealed class SeatLocalOcrUtilitiesTests
     }
 
     [Fact]
-    public void PreprocessNumericRoi_ReturnsImageBytes()
+    public void BuildVariantsForNumeric_ReturnsSourceLikeAndFallbackVariants()
     {
         var bytes = BuildPngWithText("238.50 BB");
-        var processed = SeatLocalOcrPreprocessor.PreprocessNumericRoi(bytes);
+        var variants = SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes);
 
-        Assert.NotEmpty(processed);
+        Assert.Contains(variants, variant => variant.VariantName == "raw");
+        Assert.Contains(variants, variant => variant.VariantName.StartsWith("source_enhanced_x", StringComparison.Ordinal));
+        Assert.Contains(variants, variant => variant.VariantName.StartsWith("threshold_fallback_x", StringComparison.Ordinal));
+        Assert.All(variants, variant => Assert.NotEmpty(variant.ImageBytes));
     }
 
     private static byte[] BuildPngWithText(string text)

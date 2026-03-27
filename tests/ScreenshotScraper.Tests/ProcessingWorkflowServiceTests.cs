@@ -66,10 +66,10 @@ public sealed class ProcessingWorkflowServiceTests
 
     private sealed class StubOcrEngine(string rawText) : IOcrEngine
     {
-        public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+        public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(rawText);
+            return Task.FromResult(new OcrResult(rawText, "test"));
         }
     }
 }

@@ -1,11 +1,10 @@
 # OCR runtime requirements
 
-ScreenshotScraper supports two OCR backends behind `IOcrEngine`:
+ScreenshotScraper uses a single OCR backend behind `IOcrEngine`:
 
-- **PaddleOCR (default for seat-local name/stack/bet recognition)**
-- **Windows OCR (fallback option)**
+- **PaddleOCR**
 
-PaddleOCR is preferred for tiny poker UI scene-text ROIs where Windows OCR frequently returns empty strings.
+PaddleOCR is used for both full-table extraction and tiny poker UI scene-text ROIs.
 
 ## PaddleOCR setup (3.x)
 
@@ -30,12 +29,11 @@ pip install paddleocr==3.* paddlepaddle pillow
 
 On first run, PaddleOCR downloads required models to the local Paddle cache directory automatically.
 
-### 4) Configure ScreenshotScraper backend
+### 4) Configure ScreenshotScraper OCR
 
 The WPF app reads environment variables at startup:
 
 ```powershell
-$env:OCR_BACKEND = "paddle"          # or "windows"
 $env:PADDLE_PYTHON = ".\.venv\Scripts\python.exe"
 $env:PADDLE_WORKER_SCRIPT = "tools\paddle_ocr_worker.py"
 $env:PADDLE_LANGUAGE = "en"
@@ -43,17 +41,7 @@ $env:PADDLE_TIMEOUT_MS = "15000"
 $env:PADDLE_KEEP_WARM = "true"
 ```
 
-Then run the app normally. With `OCR_BACKEND=paddle`, seat-local OCR requests flow through the Python sidecar.
-
-## Windows OCR fallback setup
-
-1. Run on **Windows 10/11**.
-2. Install at least one OCR-capable language pack (Settings → Time & language → Language & region).
-3. Set:
-
-```powershell
-$env:OCR_BACKEND = "windows"
-```
+Then run the app normally. Seat-local OCR requests flow through the Python sidecar.
 
 ## Diagnostics
 
@@ -72,8 +60,7 @@ Each seat OCR diagnostic line includes backend, ROI type, variant used (`raw` / 
 ## Manual validation checklist
 
 1. Load the known problematic screenshot in the WPF app.
-2. Confirm `OCR_BACKEND=paddle`.
-3. Generate XML.
-4. Open `debug/output/<timestamp>/seat_ocr_summary.txt`.
-5. Verify visible seat-name ROI text (e.g., `jkl102`) is non-empty in raw OCR output and parsed output.
-6. Confirm dealer detection/seat ordering remains unchanged.
+2. Generate XML.
+3. Open `debug/output/<timestamp>/seat_ocr_summary.txt`.
+4. Verify visible seat-name ROI text (e.g., `jkl102`) is non-empty in raw OCR output and parsed output.
+5. Confirm dealer detection/seat ordering remains unchanged.

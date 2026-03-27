@@ -413,7 +413,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 WindowTitle = image.WindowTitle
             };
 
-        // Tiny seat-local scene text (usernames/chips/bets) is where Windows OCR often fails.
+        // Tiny seat-local scene text (usernames/chips/bets) needs dedicated OCR preprocessing + retries.
         // We intentionally try both raw and preprocessed ROI variants so PaddleOCR can choose
         // whichever representation survives anti-aliasing/theme noise best.
         var attempts = new List<(string Variant, CapturedImage Image)>

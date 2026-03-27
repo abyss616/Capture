@@ -5,7 +5,7 @@ using System.Diagnostics;
 namespace ScreenshotScraper.Ocr;
 
 /// <summary>
-/// PaddleOCR adapter for tiny table-scene ROIs (names/stacks/bets) where Windows OCR often returns empty text.
+/// PaddleOCR adapter for full-table and tiny table-scene ROI text extraction.
 /// Keeps parser architecture unchanged by staying behind IOcrEngine.
 /// </summary>
 public sealed class PaddleOcrEngine : IOcrEngine, IDisposable

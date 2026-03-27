@@ -25,4 +25,6 @@ public sealed class PartialHandHistorySnapshot
     public ExtractedField? HeroPositionField { get; init; }
 
     public string SeatLocalOcrDiagnostics { get; init; } = string.Empty;
+
+    public IReadOnlyList<SeatDebugArtifact> SeatLocalOcrDebugArtifacts { get; init; } = [];
 }

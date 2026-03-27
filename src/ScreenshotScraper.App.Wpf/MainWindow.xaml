@@ -137,23 +137,54 @@
                                             <StackPanel>
                                                 <TextBlock Text="{Binding OccupancyLabel}" FontWeight="Bold" Margin="0,0,0,4" />
                                                 <Image Source="{Binding FullRoiImage}" Height="90" Stretch="Uniform" Margin="0,0,0,4" />
-                                                <WrapPanel>
-                                                    <StackPanel Margin="0,0,6,0">
-                                                        <TextBlock Text="Name ROI" FontSize="11" />
-                                                        <Image Source="{Binding NameRoiImage}" Height="42" Width="110" Stretch="Uniform" />
-                                                        <TextBlock Text="{Binding NameBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
-                                                    </StackPanel>
-                                                    <StackPanel Margin="0,0,6,0">
-                                                        <TextBlock Text="Stack ROI" FontSize="11" />
-                                                        <Image Source="{Binding StackRoiImage}" Height="42" Width="110" Stretch="Uniform" />
-                                                        <TextBlock Text="{Binding StackBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
-                                                    </StackPanel>
-                                                    <StackPanel>
-                                                        <TextBlock Text="Bet ROI" FontSize="11" />
-                                                        <Image Source="{Binding BetRoiImage}" Height="42" Width="110" Stretch="Uniform" />
-                                                        <TextBlock Text="{Binding BetBounds}" FontSize="10" TextWrapping="Wrap" Width="110" />
-                                                    </StackPanel>
-                                                </WrapPanel>
+                                                <ItemsControl ItemsSource="{Binding Fields}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border BorderBrush="#E4E4E4" BorderThickness="1" Padding="4" Margin="0,2,0,2">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding FieldType, StringFormat={}{0} field}" FontWeight="SemiBold" FontSize="11" />
+                                                                    <TextBlock Text="{Binding Bounds}" FontSize="10" Foreground="#666666" />
+                                                                    <WrapPanel Margin="0,3,0,3">
+                                                                        <StackPanel Margin="0,0,8,0">
+                                                                            <TextBlock Text="Raw ROI" FontSize="10" />
+                                                                            <Image Source="{Binding RawRoiImage}" Height="40" Width="110" Stretch="Uniform" />
+                                                                        </StackPanel>
+                                                                        <StackPanel>
+                                                                            <TextBlock Text="{Binding SelectedVariant, StringFormat=OCR input ({0})}" FontSize="10" />
+                                                                            <Image Source="{Binding SelectedOcrInputImage}" Height="40" Width="110" Stretch="Uniform" />
+                                                                        </StackPanel>
+                                                                    </WrapPanel>
+                                                                    <TextBlock Text="{Binding ParsedValue, StringFormat=Parsed: {0}}" FontSize="10" />
+                                                                    <TextBlock Text="{Binding ParseRejectionReason, StringFormat=Reject: {0}}" FontSize="10" Foreground="#9A6B00" TextWrapping="Wrap" />
+                                                                    <ItemsControl ItemsSource="{Binding Variants}" Margin="0,4,0,0">
+                                                                        <ItemsControl.ItemsPanel>
+                                                                            <ItemsPanelTemplate>
+                                                                                <WrapPanel />
+                                                                            </ItemsPanelTemplate>
+                                                                        </ItemsControl.ItemsPanel>
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate>
+                                                                                <Border Padding="3"
+                                                                                        Margin="0,0,4,4"
+                                                                                        BorderThickness="1"
+                                                                                        BorderBrush="#CFCFCF">
+                                                                                    <StackPanel Width="110">
+                                                                                        <TextBlock Text="{Binding VariantName}" FontSize="10" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                                                        <TextBlock Text="{Binding Selected, StringFormat=Selected: {0}}" FontSize="9" />
+                                                                                        <Image Source="{Binding Image}" Height="34" Stretch="Uniform" />
+                                                                                        <TextBlock Text="{Binding Backend, StringFormat=Backend: {0}}" FontSize="9" />
+                                                                                        <TextBlock Text="{Binding ConfidenceText, StringFormat=Conf: {0}}" FontSize="9" />
+                                                                                        <TextBlock Text="{Binding OcrRawText, StringFormat=Raw: {0}}" FontSize="9" TextWrapping="Wrap" MaxHeight="30" />
+                                                                                    </StackPanel>
+                                                                                </Border>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>

@@ -51,16 +51,38 @@ Per run, seat-local debug artifacts are persisted under:
 
 Including:
 
-- raw and preprocessed seat ROI PNGs
+- seat full ROI + raw field ROIs
+- exact OCR input PNGs for **every tried variant** (`*_ocr_input.png`)
 - `seat_ocr_summary.txt`
+- `seat_ocr_debug.json` (structured per-seat/per-field/per-variant metadata)
 - Paddle worker JSON responses (for debug/troubleshooting)
 
-Each seat OCR diagnostic line includes backend, ROI type, variant used (`raw` / `preprocessed`), raw text, confidence, and elapsed time.
+Each seat OCR diagnostic line includes seat, field ROI, backend, tried variant names, selected variant, raw OCR text, confidence, parse result, and rejection reason.
+
+### Tuning seat-local preprocessing variants
+
+Seat-local preprocessing is intentionally source-preserving first, with thresholding only as fallback.
+
+Defaults are configured in `SeatLocalOcrPreprocessingSettings`:
+
+- name upscales: `2x`, `3x`, `4x`
+- numeric upscales: `2x`, `3x`, `4x`
+- source-preserving enhancement: light contrast (`alpha`/`beta`) + mild sharpen
+- grayscale-normalized variants
+- optional threshold fallback variants
+
+To tune:
+
+1. Update values in `SeatLocalOcrPreprocessingSettings`.
+2. Re-run with the same screenshot.
+3. Compare `seat_ocr_debug.json` and variant PNGs to confirm which exact OCR-input image won.
+4. Prefer variants that preserve white/light text edges and outlines over aggressively binarized variants.
 
 ## Manual validation checklist
 
 1. Load the known problematic screenshot in the WPF app.
 2. Generate XML.
 3. Open `debug/output/<timestamp>/seat_ocr_summary.txt`.
-4. Verify visible seat-name ROI text (e.g., `jkl102`) is non-empty in raw OCR output and parsed output.
+4. Open `debug/output/<timestamp>/seat_ocr_debug.json` and confirm the selected variant image path matches the expected `*_ocr_input.png`.
+5. Verify visible seat-name ROI text (e.g., `jkl102`) is non-empty in selected OCR output and parsed output.
 5. Confirm dealer detection/seat ordering remains unchanged.

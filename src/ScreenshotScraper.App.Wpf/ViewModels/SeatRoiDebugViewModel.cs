@@ -49,3 +49,16 @@ public sealed class SeatFieldVariantDebugViewModel
 
     public required string RejectionReason { get; init; }
 }
+
+public sealed class SeatOcrInputDebugViewModel
+{
+    public required int Seat { get; init; }
+
+    public required string SeatLabel { get; init; }
+
+    public required BitmapImage? NameImage { get; init; }
+
+    public required BitmapImage? StackImage { get; init; }
+
+    public required BitmapImage? BetImage { get; init; }
+}

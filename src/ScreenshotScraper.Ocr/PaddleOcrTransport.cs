@@ -38,8 +38,6 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
             EnsureProcessStarted();
             ThrowIfWorkerExited("before request write");
 
-            await _stdin!.WriteLineAsync(requestJson).ConfigureAwait(false);
-            await _stdin.FlushAsync().ConfigureAwait(false);
             try
             {
                 await _stdin!.WriteLineAsync(requestJson).ConfigureAwait(false);
@@ -54,8 +52,8 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
             var response = await responseTask.ConfigureAwait(false);
             if (response is null)
             {
+                ThrowIfWorkerExited("before sending a response");
                 throw new InvalidOperationException("PaddleOCR worker closed stdout before sending a response.");
-  
             }
 
             return response;
@@ -77,8 +75,21 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
 
     public async Task SelfTestAsync(CancellationToken cancellationToken)
     {
-        const string pingJson = "{\"image_base64\":\"\"}";
-        _ = await InvokeAsync(pingJson, cancellationToken).ConfigureAwait(false);
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureProcessStarted();
+            ThrowIfWorkerExited("during self-test");
+        }
+        finally
+        {
+            if (!_options.KeepWorkerWarm)
+            {
+                StopProcess();
+            }
+
+            _lock.Release();
+        }
     }
 
     private void EnsureProcessStarted()
@@ -102,8 +113,8 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = _options.PythonExecutablePath,
-            Arguments = $"\"{_options.WorkerScriptPath}\" --stdio --lang {_options.Language}",
+            FileName = _resolvedPythonPath,
+            Arguments = $"\"{_resolvedWorkerScriptPath}\" --stdio --lang {_options.Language}",
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

@@ -55,13 +55,9 @@ def make_engine(
     )
 
 
-def pil_to_numpy_rgb(image: Image.Image) -> np.ndarray:
-    return np.array(image.convert("RGB"))
-
-
 def recognize_bytes(engine: PaddleOCR, image_bytes: bytes) -> dict[str, Any]:
-    image = Image.open(BytesIO(image_bytes))
-    image_np = pil_to_numpy_rgb(image)
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    image_np = np.array(image)
 
     results = engine.predict(image_np)
 
@@ -121,18 +117,22 @@ def recognize_file(engine: PaddleOCR, image_path: str) -> dict[str, Any]:
 
 
 def parse_request(payload: dict[str, Any]) -> bytes:
-    if payload.get("imageBase64"):
+    image_base64 = payload.get("imageBase64") or payload.get("image_base64")
+    if image_base64:
         try:
-            return base64.b64decode(payload["imageBase64"])
+            return base64.b64decode(image_base64)
         except Exception as ex:
             raise ValueError(f"Invalid imageBase64: {ex}") from ex
 
-    if payload.get("imagePath"):
-        image_path = str(payload["imagePath"])
+    image_path = payload.get("imagePath") or payload.get("image_path")
+    if image_path:
+        image_path = str(image_path)
         with open(image_path, "rb") as f:
             return f.read()
 
-    raise ValueError("Request must contain either 'imageBase64' or 'imagePath'.")
+    raise ValueError(
+        "Request must contain either 'imageBase64'/'image_base64' or 'imagePath'/'image_path'."
+    )
 
 
 def handle_request(engine: PaddleOCR, payload: dict[str, Any]) -> dict[str, Any]:

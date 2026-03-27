@@ -118,7 +118,7 @@
                     <DockPanel Margin="8">
                         <TextBox DockPanel.Dock="Top"
                                  Margin="0,0,0,8"
-                                 Text="{Binding SeatRoiStatus}"
+                                 Text="{Binding SeatRoiStatus, Mode=OneWay}"
                                  FontFamily="Consolas"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"

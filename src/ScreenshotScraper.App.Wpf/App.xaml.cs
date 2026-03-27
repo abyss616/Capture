@@ -10,6 +10,7 @@ using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
+using System.IO;
 using System.Windows;
 
 namespace ScreenshotScraper.App.Wpf;

@@ -62,12 +62,13 @@ public static class SeatLocalOcrPreprocessor
         Cv2.ConvertScaleAbs(output, normalized, alpha: settings.ContrastAlpha, beta: settings.ContrastBeta);
 
         using var sharpened = new Mat();
-        using var kernel = new Mat(3, 3, MatType.CV_32F, new float[]
+        var kernelData = new float[,]
         {
-            0f, -settings.SharpenStrength, 0f,
-            -settings.SharpenStrength, 1f + (4f * settings.SharpenStrength), -settings.SharpenStrength,
-            0f, -settings.SharpenStrength, 0f
-        });
+            { 0f, -settings.SharpenStrength, 0f },
+            { -settings.SharpenStrength, 1f + (4f * settings.SharpenStrength), -settings.SharpenStrength },
+            { 0f, -settings.SharpenStrength, 0f }
+        };
+        using var kernel = InputArray.Create(kernelData);
         Cv2.Filter2D(normalized, sharpened, -1, kernel);
 
         output.Dispose();

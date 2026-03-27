@@ -347,9 +347,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             var isOccupied = occupiedSeats.Count == 0 || occupiedSeats.Contains(seat.Seat);
             var seatFullBounds = BuildSeatBounds(seat);
 
-            var nameRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "name", seat.NameRoi, SeatLocalOcrPreprocessor.BuildVariantsForName, cancellationToken).ConfigureAwait(false);
-            var stackRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "stack", seat.StackRoi, SeatLocalOcrPreprocessor.BuildVariantsForNumeric, cancellationToken).ConfigureAwait(false);
-            var betRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "bet", seat.BetRoi, SeatLocalOcrPreprocessor.BuildVariantsForNumeric, cancellationToken).ConfigureAwait(false);
+            var nameRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "name", seat.NameRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForName(bytes), cancellationToken).ConfigureAwait(false);
+            var stackRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "stack", seat.StackRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes), cancellationToken).ConfigureAwait(false);
+            var betRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "bet", seat.BetRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes), cancellationToken).ConfigureAwait(false);
 
             var name = SeatLocalTextParser.ParseName(nameRead.OcrText);
             var chips = SeatLocalTextParser.ParseNumber(stackRead.OcrText);

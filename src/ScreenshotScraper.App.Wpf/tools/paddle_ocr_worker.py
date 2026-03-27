@@ -1,56 +1,85 @@
-#!/usr/bin/env python3
-"""
-Local PaddleOCR worker used by ScreenshotScraper.
-Stdio mode receives one JSON request per line and returns one JSON response per line.
-
-Protocol contract:
-- stdout: JSON responses only (exactly one line per request)
-- stderr: diagnostics, tracebacks, and runtime logs
-"""
-
 import argparse
 import base64
 import json
+import os
 import sys
-import time
-import traceback
 from io import BytesIO
+from typing import Any
 
+import numpy as np
 from PIL import Image
 from paddleocr import PaddleOCR
 
 
-def log_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+def eprint(*args: Any) -> None:
+    print(*args, file=sys.stderr, flush=True)
 
 
-def build_engine(lang: str) -> PaddleOCR:
+def json_dumps_line(obj: dict[str, Any]) -> str:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def ok_result(text: str, confidence: float | None, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "text": text,
+        "confidence": confidence,
+        "lines": lines,
+    }
+
+
+def error_result(message: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": message,
+        "text": "",
+        "confidence": None,
+        "lines": [],
+    }
+
+
+def make_engine(
+    lang: str = "en",
+    use_doc_orientation_classify: bool = False,
+    use_doc_unwarping: bool = False,
+    use_textline_orientation: bool = False,
+) -> PaddleOCR:
+    # Optional: suppress Paddle model source connectivity check warning/delay
+    os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
     return PaddleOCR(
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
         lang=lang,
+        use_doc_orientation_classify=use_doc_orientation_classify,
+        use_doc_unwarping=use_doc_unwarping,
+        use_textline_orientation=use_textline_orientation,
     )
 
 
-def recognize(engine: PaddleOCR, image_bytes: bytes) -> dict:
-    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+def pil_to_numpy_rgb(image: Image.Image) -> np.ndarray:
+    return np.array(image.convert("RGB"))
 
-    # PaddleOCR 3.x docs show predict(...) as the main API.
-    results = engine.predict(image)
 
-    lines = []
-    texts = []
-    confidences = []
+def recognize_bytes(engine: PaddleOCR, image_bytes: bytes) -> dict[str, Any]:
+    image = Image.open(BytesIO(image_bytes))
+    image_np = pil_to_numpy_rgb(image)
+
+    results = engine.predict(image_np)
+
+    lines: list[dict[str, Any]] = []
+    texts: list[str] = []
+    confidences: list[float] = []
 
     for res in results or []:
-        data = res.get("res", {}) if isinstance(res, dict) else {}
+        if not isinstance(res, dict):
+            continue
+
+        data = res.get("res", {}) or {}
         rec_texts = data.get("rec_texts", []) or []
         rec_scores = data.get("rec_scores", []) or []
+        rec_polys = data.get("rec_polys", []) or []
 
         for i, text in enumerate(rec_texts):
-            clean = (text or "").strip()
+            clean = str(text).strip()
             if not clean:
                 continue
 
@@ -58,78 +87,180 @@ def recognize(engine: PaddleOCR, image_bytes: bytes) -> dict:
             if i < len(rec_scores):
                 try:
                     conf = float(rec_scores[i])
+                    confidences.append(conf)
                 except Exception:
                     conf = None
 
+            bbox = None
+            if i < len(rec_polys):
+                try:
+                    poly = rec_polys[i]
+                    bbox = poly.tolist() if hasattr(poly, "tolist") else poly
+                except Exception:
+                    bbox = None
+
+            lines.append(
+                {
+                    "text": clean,
+                    "confidence": conf,
+                    "bbox": bbox,
+                }
+            )
             texts.append(clean)
-            if conf is not None:
-                confidences.append(conf)
-            lines.append({"text": clean, "confidence": conf})
 
-    confidence = None
+    avg_confidence = None
     if confidences:
-        confidence = sum(confidences) / len(confidences)
+        avg_confidence = sum(confidences) / len(confidences)
 
-    return {
-        "text": " ".join(texts).strip(),
-        "confidence": confidence,
-        "lines": lines,
-    }
+    return ok_result(" ".join(texts).strip(), avg_confidence, lines)
 
 
-def handle_request(engine: PaddleOCR, request_line: str) -> dict:
-    started = time.perf_counter()
-    payload = json.loads(request_line)
-
-    image_base64 = payload.get("image_base64", "")
-    if not image_base64:
-        return {
-            "ok": True,
-            "text": "",
-            "confidence": None,
-            "lines": [],
-            "elapsed_ms": 0,
-        }
-
-    image_bytes = base64.b64decode(image_base64)
-    data = recognize(engine, image_bytes)
-    data["ok"] = True
-    data["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
-    return data
+def recognize_file(engine: PaddleOCR, image_path: str) -> dict[str, Any]:
+    with open(image_path, "rb") as f:
+        return recognize_bytes(engine, f.read())
 
 
-def run_stdio(engine: PaddleOCR) -> None:
-    for raw_line in sys.stdin:
-        line = raw_line.strip()
+def parse_request(payload: dict[str, Any]) -> bytes:
+    if payload.get("imageBase64"):
+        try:
+            return base64.b64decode(payload["imageBase64"])
+        except Exception as ex:
+            raise ValueError(f"Invalid imageBase64: {ex}") from ex
+
+    if payload.get("imagePath"):
+        image_path = str(payload["imagePath"])
+        with open(image_path, "rb") as f:
+            return f.read()
+
+    raise ValueError("Request must contain either 'imageBase64' or 'imagePath'.")
+
+
+def handle_request(engine: PaddleOCR, payload: dict[str, Any]) -> dict[str, Any]:
+    image_bytes = parse_request(payload)
+    return recognize_bytes(engine, image_bytes)
+
+
+def run_single_json_stdin(args: argparse.Namespace) -> int:
+    try:
+        engine = make_engine(
+            lang=args.lang,
+            use_doc_orientation_classify=args.use_doc_orientation_classify,
+            use_doc_unwarping=args.use_doc_unwarping,
+            use_textline_orientation=args.use_textline_orientation,
+        )
+
+        raw = sys.stdin.read()
+        if not raw.strip():
+            print(json_dumps_line(error_result("No JSON received on stdin.")), flush=True)
+            return 1
+
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            print(json_dumps_line(error_result("stdin JSON must be an object.")), flush=True)
+            return 1
+
+        result = handle_request(engine, payload)
+        print(json_dumps_line(result), flush=True)
+        return 0
+
+    except Exception as ex:
+        print(json_dumps_line(error_result(str(ex))), flush=True)
+        return 1
+
+
+def run_stdio_loop(args: argparse.Namespace) -> int:
+    """
+    Long-lived worker mode.
+    Reads one JSON object per line from stdin.
+    Writes one JSON object per line to stdout.
+    """
+    try:
+        engine = make_engine(
+            lang=args.lang,
+            use_doc_orientation_classify=args.use_doc_orientation_classify,
+            use_doc_unwarping=args.use_doc_unwarping,
+            use_textline_orientation=args.use_textline_orientation,
+        )
+    except Exception as ex:
+        print(json_dumps_line(error_result(f"Failed to initialize PaddleOCR: {ex}")), flush=True)
+        return 1
+
+    for line in sys.stdin:
+        line = line.strip()
         if not line:
             continue
 
         try:
-            response = handle_request(engine, line)
-        except Exception as exc:
-            log_stderr(f"request failure: {exc}")
-            traceback.print_exc(file=sys.stderr)
-            response = {"ok": False, "error": str(exc)}
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                response = error_result("Request JSON must be an object.")
+            else:
+                response = handle_request(engine, payload)
+        except Exception as ex:
+            response = error_result(str(ex))
 
-        sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        print(json_dumps_line(response), flush=True)
+
+    return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--stdio", action="store_true", help="Run line-delimited JSON over stdin/stdout")
-    parser.add_argument("--lang", default="en", help="PaddleOCR language model tag")
+def run_image_cli(args: argparse.Namespace) -> int:
+    try:
+        engine = make_engine(
+            lang=args.lang,
+            use_doc_orientation_classify=args.use_doc_orientation_classify,
+            use_doc_unwarping=args.use_doc_unwarping,
+            use_textline_orientation=args.use_textline_orientation,
+        )
+        result = recognize_file(engine, args.image)
+        print(json_dumps_line(result), flush=True)
+        return 0
+    except Exception as ex:
+        print(json_dumps_line(error_result(str(ex))), flush=True)
+        return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="PaddleOCR worker")
+    parser.add_argument("--image", help="Path to image file")
+    parser.add_argument("--stdin-json", action="store_true", help="Read a single JSON request from stdin")
+    parser.add_argument("--stdio", action="store_true", help="Run as line-delimited JSON stdio worker")
+    parser.add_argument("--lang", default="en", help="OCR language")
+
+    parser.add_argument(
+        "--use-doc-orientation-classify",
+        action="store_true",
+        help="Enable document orientation classification",
+    )
+    parser.add_argument(
+        "--use-doc-unwarping",
+        action="store_true",
+        help="Enable document unwarping",
+    )
+    parser.add_argument(
+        "--use-textline-orientation",
+        action="store_true",
+        help="Enable text line orientation classification",
+    )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
-    log_stderr(f"paddle_ocr_worker starting (lang={args.lang}, stdio={args.stdio})")
-    engine = build_engine(args.lang)
-    log_stderr("paddle_ocr_worker initialized successfully")
-
     if args.stdio:
-        run_stdio(engine)
-    else:
-        parser.error("Only --stdio mode is currently supported.")
+        return run_stdio_loop(args)
+
+    if args.stdin_json:
+        return run_single_json_stdin(args)
+
+    if args.image:
+        return run_image_cli(args)
+
+    print(json_dumps_line(error_result("Provide --image, --stdin-json, or --stdio.")), flush=True)
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

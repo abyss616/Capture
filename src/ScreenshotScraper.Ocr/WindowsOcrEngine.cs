@@ -2,7 +2,6 @@ using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
 using System.Globalization;
 
-
 #if WINDOWS
 using System.Runtime.Versioning;
 using System.Text;
@@ -39,7 +38,7 @@ public sealed class WindowsOcrEngine : IOcrEngine
     }
 
     [SupportedOSPlatform("windows10.0.19041.0")]
-    public async Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+    public async Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(image);
@@ -50,6 +49,7 @@ public sealed class WindowsOcrEngine : IOcrEngine
         }
 
         var configuredEngine = _configuredEngine.Value;
+        var started = DateTime.UtcNow;
 
         try
         {
@@ -58,8 +58,15 @@ public sealed class WindowsOcrEngine : IOcrEngine
 
             var ocrResult = await configuredEngine.Engine.RecognizeAsync(softwareBitmap);
             cancellationToken.ThrowIfCancellationRequested();
+            var text = NormalizeOcrText(ocrResult.Text);
 
-            return NormalizeOcrText(ocrResult.Text);
+            return new OcrResult(
+                text,
+                Backend: "windows",
+                Confidence: null,
+                RawPayload: null,
+                Lines: ocrResult.Lines.Select(line => new OcrLineResult(line.Text)).ToArray(),
+                ElapsedMilliseconds: (long)(DateTime.UtcNow - started).TotalMilliseconds);
         }
         catch (Exception exception) when (exception is not OcrEngineUnavailableException)
         {
@@ -157,7 +164,7 @@ public sealed class WindowsOcrEngine : IOcrEngine
 
     internal sealed record ConfiguredWindowsOcrEngine(OcrEngine Engine, string LanguageTag);
 #else
-    public Task<string> ReadTextAsync(CapturedImage image, CancellationToken cancellationToken = default)
+    public Task<OcrResult> ReadAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 

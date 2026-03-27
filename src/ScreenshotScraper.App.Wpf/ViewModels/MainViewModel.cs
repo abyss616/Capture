@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Windows.Media.Imaging;
 using OpenCvSharp;
 using ScreenshotScraper.Extraction.HandHistory;
@@ -203,6 +204,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? "Pre-hero XML generated from the current screenshot."
             : string.Join(Environment.NewLine, workflowResult.Errors.DefaultIfEmpty("Workflow completed with warnings."));
 
+        TryLoadSeatOcrDebugArtifacts(_capturedImage);
         TryLoadSeatOcrSummary(_capturedImage);
     }
 
@@ -271,16 +273,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 Seat = seat.Seat,
                 OccupancyLabel = $"Seat {seat.Seat}",
                 FullRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, fullBounds)),
-                NameRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.NameRoi)),
-                StackRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.StackRoi)),
-                BetRoiImage = ToBitmap(CropRoi(capturedImage.ImageBytes, seat.BetRoi)),
-                NameBounds = FormatBounds(seat.NameRoi),
-                StackBounds = FormatBounds(seat.StackRoi),
-                BetBounds = FormatBounds(seat.BetRoi)
+                Fields =
+                [
+                    BuildStaticFieldDebug("name", capturedImage, seat.NameRoi),
+                    BuildStaticFieldDebug("stack", capturedImage, seat.StackRoi),
+                    BuildStaticFieldDebug("bet", capturedImage, seat.BetRoi)
+                ]
             });
         }
 
-        SeatRoiStatus = $"Showing {SeatRoiDebugItems.Count} seat ROI panels (full + name/stack/bet crops).";
+        SeatRoiStatus = $"Showing {SeatRoiDebugItems.Count} seat ROI panels (full + raw name/stack/bet crops). Run XML to see exact OCR-input variants.";
     }
 
     private void TryLoadSeatOcrSummary(CapturedImage? capturedImage)
@@ -298,9 +300,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private void TryLoadSeatOcrDebugArtifacts(CapturedImage? capturedImage)
+    {
+        if (capturedImage is null)
+        {
+            return;
+        }
+
+        var timestamp = (capturedImage.CapturedAtUtc == default ? DateTime.UtcNow : capturedImage.CapturedAtUtc).ToString("yyyyMMdd_HHmmssfff");
+        var debugPath = Path.Combine("debug", "output", timestamp, "seat_ocr_debug.json");
+        if (!File.Exists(debugPath))
+        {
+            return;
+        }
+
+        var payload = File.ReadAllText(debugPath);
+        var artifacts = JsonSerializer.Deserialize<List<SeatDebugArtifact>>(payload);
+        if (artifacts is null || artifacts.Count == 0)
+        {
+            return;
+        }
+
+        SeatRoiDebugItems.Clear();
+        foreach (var seat in artifacts.OrderBy(item => item.SeatNumber))
+        {
+            var fields = seat.Fields
+                .OrderBy(field => field.FieldType)
+                .Select(BuildFieldDebugFromArtifact)
+                .ToList();
+
+            SeatRoiDebugItems.Add(new SeatRoiDebugViewModel
+            {
+                Seat = seat.SeatNumber,
+                OccupancyLabel = $"Seat {seat.SeatNumber}",
+                FullRoiImage = TryLoadBitmapFromPath(seat.SeatFullImagePath),
+                Fields = new ObservableCollection<SeatFieldDebugViewModel>(fields)
+            });
+        }
+    }
+
     private static BitmapImage? ToBitmap(byte[] bytes)
     {
         return bytes.Length == 0 ? null : BitmapImageFactory.Create(bytes);
+    }
+
+    private static BitmapImage? TryLoadBitmapFromPath(string path)
+    {
+        return File.Exists(path) ? BitmapImageFactory.Create(File.ReadAllBytes(path)) : null;
     }
 
     private static byte[] CropRoi(byte[] sourceBytes, System.Drawing.Rectangle roi)
@@ -334,6 +380,62 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string FormatBounds(System.Drawing.Rectangle roi)
     {
         return $"x={roi.X}, y={roi.Y}, w={roi.Width}, h={roi.Height}";
+    }
+
+    private static SeatFieldDebugViewModel BuildStaticFieldDebug(string fieldType, CapturedImage capturedImage, System.Drawing.Rectangle roi)
+    {
+        var rawImage = ToBitmap(CropRoi(capturedImage.ImageBytes, roi));
+        return new SeatFieldDebugViewModel
+        {
+            FieldType = fieldType,
+            RawRoiImage = rawImage,
+            SelectedOcrInputImage = rawImage,
+            Bounds = FormatBounds(roi),
+            SelectedVariant = "raw",
+            ParsedValue = string.Empty,
+            ParseRejectionReason = string.Empty,
+            Variants =
+            [
+                new SeatFieldVariantDebugViewModel
+                {
+                    VariantName = "raw",
+                    Image = rawImage,
+                    Selected = true,
+                    OcrRawText = string.Empty,
+                    ConfidenceText = "n/a",
+                    Backend = "n/a",
+                    RejectionReason = string.Empty
+                }
+            ]
+        };
+    }
+
+    private static SeatFieldDebugViewModel BuildFieldDebugFromArtifact(SeatFieldOcrDebugResult field)
+    {
+        var variants = field.Variants
+            .Select(variant => new SeatFieldVariantDebugViewModel
+            {
+                VariantName = variant.VariantName,
+                Image = TryLoadBitmapFromPath(variant.OcrInputImagePath),
+                Selected = variant.Selected,
+                OcrRawText = variant.OcrRawText,
+                ConfidenceText = variant.Confidence.HasValue ? variant.Confidence.Value.ToString("0.000") : "n/a",
+                Backend = variant.OcrBackend,
+                RejectionReason = variant.RejectionReason ?? string.Empty
+            })
+            .ToList();
+
+        return new SeatFieldDebugViewModel
+        {
+            FieldType = field.FieldType,
+            RawRoiImage = TryLoadBitmapFromPath(field.RawRoiImagePath),
+            SelectedOcrInputImage = TryLoadBitmapFromPath(field.SelectedOcrInputImagePath),
+            Bounds = FormatBounds(field.RawRoiRect),
+            SelectedVariant = field.SelectedVariantName,
+            ParsedValue = field.ParsedValue,
+            ParseRejectionReason = field.ParseRejectionReason,
+            Variants = new ObservableCollection<SeatFieldVariantDebugViewModel>(variants)
+        };
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

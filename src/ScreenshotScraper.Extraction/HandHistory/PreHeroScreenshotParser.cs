@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text;
+using System.Text.Json;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
 
@@ -73,7 +74,8 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             HeroNameField = heroNameField,
             DealerSeatField = dealerSeatField,
             HeroPositionField = heroPositionField,
-            SeatLocalOcrDiagnostics = seatLocalResult.Diagnostics
+            SeatLocalOcrDiagnostics = seatLocalResult.Diagnostics,
+            SeatLocalOcrDebugArtifacts = seatLocalResult.DebugArtifacts
         };
     }
 
@@ -326,7 +328,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
     {
         if (image.ImageBytes.Length == 0)
         {
-            return new SeatLocalExtractionResult([], "No screenshot bytes available for seat-local OCR.");
+            return new SeatLocalExtractionResult([], "No screenshot bytes available for seat-local OCR.", []);
         }
 
         var occupiedSeats = detection.OccupiedSeats
@@ -337,6 +339,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var seatRois = new SixMaxTableVisionLayout().GetSeatRois(image.Width, image.Height);
         var players = new List<SnapshotPlayer>();
         var diagnostics = new List<string>();
+        var debugArtifacts = new List<SeatDebugArtifact>();
         var debugDirectory = EnsureSeatLocalDebugDirectory(image.CapturedAtUtc);
 
         foreach (var seat in seatRois)
@@ -344,9 +347,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             var isOccupied = occupiedSeats.Count == 0 || occupiedSeats.Contains(seat.Seat);
             var seatFullBounds = BuildSeatBounds(seat);
 
-            var nameRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "name", seat.NameRoi, SeatLocalOcrPreprocessor.PreprocessNameRoi, cancellationToken).ConfigureAwait(false);
-            var stackRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "stack", seat.StackRoi, SeatLocalOcrPreprocessor.PreprocessNumericRoi, cancellationToken).ConfigureAwait(false);
-            var betRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "bet", seat.BetRoi, SeatLocalOcrPreprocessor.PreprocessNumericRoi, cancellationToken).ConfigureAwait(false);
+            var nameRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "name", seat.NameRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForName(bytes), cancellationToken).ConfigureAwait(false);
+            var stackRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "stack", seat.StackRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes), cancellationToken).ConfigureAwait(false);
+            var betRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "bet", seat.BetRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes), cancellationToken).ConfigureAwait(false);
 
             var name = SeatLocalTextParser.ParseName(nameRead.OcrText);
             var chips = SeatLocalTextParser.ParseNumber(stackRead.OcrText);
@@ -356,9 +359,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             var stackRejection = chips.Length == 0 && !string.IsNullOrWhiteSpace(stackRead.OcrText) ? "numeric parse failed" : string.Empty;
             var betRejection = bet.Length == 0 && !string.IsNullOrWhiteSpace(betRead.OcrText) ? "numeric parse failed" : string.Empty;
 
-            SaveSeatLocalDebugArtifacts(image, debugDirectory, seat, seatFullBounds, nameRead, stackRead, betRead);
-
             diagnostics.Add($"Seat {seat.Seat}: occupied={isOccupied}; full={FormatRect(seatFullBounds)}; name={FormatRect(seat.NameRoi)} variant={nameRead.VariantUsed} backend={nameRead.OcrResult.Backend} conf={FormatConfidence(nameRead.OcrResult.Confidence)} raw='{Sanitize(nameRead.OcrText)}' parsed='{name}' reject='{nameRejection}'; stack={FormatRect(seat.StackRoi)} variant={stackRead.VariantUsed} backend={stackRead.OcrResult.Backend} conf={FormatConfidence(stackRead.OcrResult.Confidence)} raw='{Sanitize(stackRead.OcrText)}' parsed='{chips}' reject='{stackRejection}'; bet={FormatRect(seat.BetRoi)} variant={betRead.VariantUsed} backend={betRead.OcrResult.Backend} conf={FormatConfidence(betRead.OcrResult.Confidence)} raw='{Sanitize(betRead.OcrText)}' parsed='{bet}' reject='{betRejection}'");
+            diagnostics.Add($"  name variants: {FormatVariantDiagnostics(nameRead.Attempts)}");
+            diagnostics.Add($"  stack variants: {FormatVariantDiagnostics(stackRead.Attempts)}");
+            diagnostics.Add($"  bet variants: {FormatVariantDiagnostics(betRead.Attempts)}");
 
             Debug.WriteLine($"[SeatLocalOCR] seat={seat.Seat}; occupied={isOccupied}; full={FormatRect(seatFullBounds)}; nameRoi={FormatRect(seat.NameRoi)}; stackRoi={FormatRect(seat.StackRoi)}; betRoi={FormatRect(seat.BetRoi)}; nameVariant={nameRead.VariantUsed}; stackVariant={stackRead.VariantUsed}; betVariant={betRead.VariantUsed}; nameBackend={nameRead.OcrResult.Backend}; stackBackend={stackRead.OcrResult.Backend}; betBackend={betRead.OcrResult.Backend}; nameConf={FormatConfidence(nameRead.OcrResult.Confidence)}; stackConf={FormatConfidence(stackRead.OcrResult.Confidence)}; betConf={FormatConfidence(betRead.OcrResult.Confidence)}; nameElapsedMs={nameRead.OcrResult.ElapsedMilliseconds ?? 0}; stackElapsedMs={stackRead.OcrResult.ElapsedMilliseconds ?? 0}; betElapsedMs={betRead.OcrResult.ElapsedMilliseconds ?? 0}; nameRaw='{Sanitize(nameRead.OcrText)}'; stackRaw='{Sanitize(stackRead.OcrText)}'; betRaw='{Sanitize(betRead.OcrText)}'; parsedName='{name}'; parsedStack='{chips}'; parsedBet='{bet}'; nameReject='{nameRejection}'; stackReject='{stackRejection}'; betReject='{betRejection}'");
 
@@ -379,11 +383,30 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 AppearsFolded = false,
                 HasVisibleCards = false
             });
+
+            var seatDebugArtifact = SaveSeatLocalDebugArtifacts(
+                image,
+                debugDirectory,
+                seat,
+                seatFullBounds,
+                nameRead,
+                name,
+                nameRejection,
+                stackRead,
+                chips,
+                stackRejection,
+                betRead,
+                bet,
+                betRejection);
+            debugArtifacts.Add(seatDebugArtifact);
         }
 
         var diagnosticsText = string.Join(Environment.NewLine, diagnostics);
         File.WriteAllText(Path.Combine(debugDirectory, "seat_ocr_summary.txt"), diagnosticsText);
-        return new SeatLocalExtractionResult(players, diagnosticsText);
+        File.WriteAllText(
+            Path.Combine(debugDirectory, "seat_ocr_debug.json"),
+            JsonSerializer.Serialize(debugArtifacts, new JsonSerializerOptions { WriteIndented = true }));
+        return new SeatLocalExtractionResult(players, diagnosticsText, debugArtifacts);
     }
 
     private async Task<SeatRoiReadResult> ReadSeatRoiTextAsync(
@@ -392,68 +415,60 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         int seat,
         string roiType,
         Rectangle roi,
-        Func<byte[], byte[]> preprocess,
+        Func<byte[], IReadOnlyList<SeatLocalOcrVariantImage>> buildVariants,
         CancellationToken cancellationToken)
     {
         var cropped = CropRegion(image, roi);
         if (cropped.ImageBytes.Length == 0)
         {
-            return new SeatRoiReadResult(cropped, new CapturedImage(), "raw", new OcrResult(string.Empty, "none"), string.Empty);
+            return new SeatRoiReadResult(cropped, "raw", new OcrResult(string.Empty, "none"), string.Empty, []);
         }
 
-        var preprocessedBytes = preprocess(cropped.ImageBytes);
-        var preprocessed = preprocessedBytes.Length == 0
-            ? new CapturedImage()
-            : new CapturedImage
+        var variantInputs = buildVariants(cropped.ImageBytes);
+        if (variantInputs.Count == 0)
+        {
+            variantInputs = [new SeatLocalOcrVariantImage("raw", cropped.ImageBytes, cropped.Width, cropped.Height)];
+        }
+
+        var attempts = new List<SeatOcrAttempt>(variantInputs.Count);
+        foreach (var variantInput in variantInputs)
+        {
+            var attemptImage = new CapturedImage
             {
-                ImageBytes = preprocessedBytes,
-                Width = cropped.Width,
-                Height = cropped.Height,
+                ImageBytes = variantInput.ImageBytes,
+                Width = variantInput.Width,
+                Height = variantInput.Height,
                 CapturedAtUtc = image.CapturedAtUtc,
                 WindowTitle = image.WindowTitle
             };
 
-        // Tiny seat-local scene text (usernames/chips/bets) needs dedicated OCR preprocessing + retries.
-        // We intentionally try both raw and preprocessed ROI variants so PaddleOCR can choose
-        // whichever representation survives anti-aliasing/theme noise best.
-        var attempts = new List<(string Variant, CapturedImage Image)>
-        {
-            ("raw", cropped)
-        };
-
-        if (preprocessed.ImageBytes.Length > 0)
-        {
-            attempts.Insert(0, ("preprocessed", preprocessed));
+            var request = new OcrRequest(roiType, variantInput.VariantName, PreferRecognitionOnly: true);
+            var result = await _ocrEngine.ReadAsync(attemptImage, request, cancellationToken).ConfigureAwait(false);
+            attempts.Add(new SeatOcrAttempt(variantInput, result));
         }
 
-        OcrResult selected = new(string.Empty, "unknown");
-        var selectedVariant = attempts[0].Variant;
-        foreach (var attempt in attempts)
+        var selectedAttempt = attempts
+            .OrderByDescending(attempt => ScoreAttempt(roiType, attempt.OcrResult))
+            .ThenByDescending(attempt => attempt.OcrResult.Confidence ?? 0)
+            .ThenByDescending(attempt => Sanitize(attempt.OcrResult.Text).Length)
+            .FirstOrDefault() ?? new SeatOcrAttempt(new SeatLocalOcrVariantImage("raw", cropped.ImageBytes, cropped.Width, cropped.Height), new OcrResult(string.Empty, "none"));
+
+        var attemptSummaries = attempts
+            .Select(attempt => new SeatOcrAttemptSummary(
+                attempt.Variant.VariantName,
+                attempt.Variant.ImageBytes,
+                attempt.OcrResult,
+                attempt.Variant.VariantName == selectedAttempt.Variant.VariantName,
+                attempt.Variant.VariantName == selectedAttempt.Variant.VariantName ? null : BuildAttemptRejectionReason(roiType, attempt, selectedAttempt)))
+            .ToList();
+
+        if (selectedAttempt.OcrResult.RawPayload is { Length: > 0 })
         {
-            var request = new OcrRequest(roiType, attempt.Variant, PreferRecognitionOnly: true);
-            var result = await _ocrEngine.ReadAsync(attempt.Image, request, cancellationToken).ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(result.Text))
-            {
-                selected = result;
-                selectedVariant = attempt.Variant;
-                break;
-            }
-
-            if (selected.Text.Length == 0)
-            {
-                selected = result;
-                selectedVariant = attempt.Variant;
-            }
+            var outputPath = Path.Combine(debugDirectory, $"seat_{seat}_{roiType}_{selectedAttempt.Variant.VariantName}_ocr.json");
+            File.WriteAllText(outputPath, selectedAttempt.OcrResult.RawPayload);
         }
 
-        if (selected.RawPayload is { Length: > 0 })
-        {
-            var outputPath = Path.Combine(debugDirectory, $"seat_{seat}_{roiType}_{selectedVariant}_ocr.json");
-            File.WriteAllText(outputPath, selected.RawPayload);
-        }
-
-        return new SeatRoiReadResult(cropped, preprocessed, selectedVariant, selected, selected.Text);
+        return new SeatRoiReadResult(cropped, selectedAttempt.Variant.VariantName, selectedAttempt.OcrResult, selectedAttempt.OcrResult.Text, attemptSummaries);
     }
 
     private static Rectangle BuildSeatBounds(SeatVisionRoi seat)
@@ -465,16 +480,77 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return Rectangle.FromLTRB(left, top, right, bottom);
     }
 
-    private static void SaveSeatLocalDebugArtifacts(CapturedImage source, string debugDirectory, SeatVisionRoi seat, Rectangle fullBounds, SeatRoiReadResult nameRead, SeatRoiReadResult stackRead, SeatRoiReadResult betRead)
+    private static SeatDebugArtifact SaveSeatLocalDebugArtifacts(
+        CapturedImage source,
+        string debugDirectory,
+        SeatVisionRoi seat,
+        Rectangle fullBounds,
+        SeatRoiReadResult nameRead,
+        string parsedName,
+        string nameRejection,
+        SeatRoiReadResult stackRead,
+        string parsedStack,
+        string stackRejection,
+        SeatRoiReadResult betRead,
+        string parsedBet,
+        string betRejection)
     {
         var fullCrop = CropRegion(source, fullBounds);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_full.png"), fullCrop.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_name_raw.png"), nameRead.Raw.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_name_preprocessed.png"), nameRead.Preprocessed.ImageBytes.Length == 0 ? nameRead.Raw.ImageBytes : nameRead.Preprocessed.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_stack_raw.png"), stackRead.Raw.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_stack_preprocessed.png"), stackRead.Preprocessed.ImageBytes.Length == 0 ? stackRead.Raw.ImageBytes : stackRead.Preprocessed.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_bet_raw.png"), betRead.Raw.ImageBytes);
-        File.WriteAllBytes(Path.Combine(debugDirectory, $"seat_{seat.Seat}_bet_preprocessed.png"), betRead.Preprocessed.ImageBytes.Length == 0 ? betRead.Raw.ImageBytes : betRead.Preprocessed.ImageBytes);
+        var fullPath = Path.Combine(debugDirectory, $"seat_{seat.Seat}_full.png");
+        File.WriteAllBytes(fullPath, fullCrop.ImageBytes);
+
+        var nameArtifact = SaveFieldArtifacts(debugDirectory, seat.Seat, "name", seat.NameRoi, parsedName, nameRejection, nameRead);
+        var stackArtifact = SaveFieldArtifacts(debugDirectory, seat.Seat, "stack", seat.StackRoi, parsedStack, stackRejection, stackRead);
+        var betArtifact = SaveFieldArtifacts(debugDirectory, seat.Seat, "bet", seat.BetRoi, parsedBet, betRejection, betRead);
+
+        return new SeatDebugArtifact
+        {
+            SeatNumber = seat.Seat,
+            SeatFullRect = fullBounds,
+            SeatFullImagePath = fullPath,
+            Fields = [nameArtifact, stackArtifact, betArtifact]
+        };
+    }
+
+    private static SeatFieldOcrDebugResult SaveFieldArtifacts(string debugDirectory, int seat, string fieldType, Rectangle roi, string parsedValue, string parseRejectionReason, SeatRoiReadResult fieldRead)
+    {
+        var rawPath = Path.Combine(debugDirectory, $"seat_{seat}_{fieldType}_raw.png");
+        File.WriteAllBytes(rawPath, fieldRead.Raw.ImageBytes);
+
+        var variantArtifacts = new List<SeatOcrVariantDebugArtifact>(fieldRead.Attempts.Count);
+        foreach (var attempt in fieldRead.Attempts)
+        {
+            var variantPath = Path.Combine(debugDirectory, $"seat_{seat}_{fieldType}_{attempt.VariantName}_ocr_input.png");
+            File.WriteAllBytes(variantPath, attempt.ImageBytes);
+            variantArtifacts.Add(new SeatOcrVariantDebugArtifact
+            {
+                SeatNumber = seat,
+                FieldType = fieldType,
+                RawRoiRect = roi,
+                VariantName = attempt.VariantName,
+                OcrInputImagePath = variantPath,
+                OcrBackend = attempt.OcrResult.Backend,
+                OcrRawText = attempt.OcrResult.Text,
+                Confidence = attempt.OcrResult.Confidence,
+                Selected = attempt.Selected,
+                ParsedValue = parsedValue,
+                RejectionReason = attempt.RejectionReason
+            });
+        }
+
+        var selected = variantArtifacts.FirstOrDefault(item => item.Selected) ?? variantArtifacts.FirstOrDefault();
+        return new SeatFieldOcrDebugResult
+        {
+            SeatNumber = seat,
+            FieldType = fieldType,
+            RawRoiRect = roi,
+            RawRoiImagePath = rawPath,
+            SelectedVariantName = selected?.VariantName ?? "raw",
+            SelectedOcrInputImagePath = selected?.OcrInputImagePath ?? rawPath,
+            ParsedValue = parsedValue,
+            ParseRejectionReason = parseRejectionReason,
+            Variants = variantArtifacts
+        };
     }
 
     private static string EnsureSeatLocalDebugDirectory(DateTime capturedAt)
@@ -489,6 +565,31 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
 
     private static string Sanitize(string? value) => (value ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
     private static string FormatConfidence(double? confidence) => confidence.HasValue ? confidence.Value.ToString("0.000") : "n/a";
+    private static string FormatVariantDiagnostics(IReadOnlyList<SeatOcrAttemptSummary> attempts)
+        => string.Join(", ", attempts.Select(attempt => $"{attempt.VariantName}[selected={attempt.Selected},backend={attempt.OcrResult.Backend},conf={FormatConfidence(attempt.OcrResult.Confidence)},raw='{Sanitize(attempt.OcrResult.Text)}',reject='{attempt.RejectionReason ?? string.Empty}']"));
+
+    private static double ScoreAttempt(string roiType, OcrResult result)
+    {
+        var text = Sanitize(result.Text);
+        if (text.Length == 0)
+        {
+            return -1;
+        }
+
+        var confidenceBonus = (result.Confidence ?? 0d) * 5d;
+        return roiType switch
+        {
+            "name" => text.Any(char.IsLetter) ? 5d + confidenceBonus + text.Length : 0.5d + confidenceBonus,
+            _ => text.Any(char.IsDigit) ? 4d + confidenceBonus + text.Count(char.IsDigit) : 0.5d + confidenceBonus
+        };
+    }
+
+    private static string BuildAttemptRejectionReason(string roiType, SeatOcrAttempt attempt, SeatOcrAttempt selected)
+    {
+        var attemptScore = ScoreAttempt(roiType, attempt.OcrResult);
+        var selectedScore = ScoreAttempt(roiType, selected.OcrResult);
+        return $"score={attemptScore:0.000} below selected={selectedScore:0.000}";
+    }
 
     private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string heroCards)
     {
@@ -607,7 +708,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         };
     }
 
-    private sealed record SeatRoiReadResult(CapturedImage Raw, CapturedImage Preprocessed, string VariantUsed, OcrResult OcrResult, string OcrText);
+    private sealed record SeatRoiReadResult(CapturedImage Raw, string VariantUsed, OcrResult OcrResult, string OcrText, IReadOnlyList<SeatOcrAttemptSummary> Attempts);
+    private sealed record SeatOcrAttempt(SeatLocalOcrVariantImage Variant, OcrResult OcrResult);
+    private sealed record SeatOcrAttemptSummary(string VariantName, byte[] ImageBytes, OcrResult OcrResult, bool Selected, string? RejectionReason);
 
-    private sealed record SeatLocalExtractionResult(IReadOnlyList<SnapshotPlayer> Players, string Diagnostics);
+    private sealed record SeatLocalExtractionResult(IReadOnlyList<SnapshotPlayer> Players, string Diagnostics, IReadOnlyList<SeatDebugArtifact> DebugArtifacts);
 }

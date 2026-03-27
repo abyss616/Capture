@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Windows.Media.Imaging;
 
 namespace ScreenshotScraper.App.Wpf.ViewModels;
@@ -10,15 +11,41 @@ public sealed class SeatRoiDebugViewModel
 
     public required BitmapImage? FullRoiImage { get; init; }
 
-    public required BitmapImage? NameRoiImage { get; init; }
+    public required ObservableCollection<SeatFieldDebugViewModel> Fields { get; init; }
+}
 
-    public required BitmapImage? StackRoiImage { get; init; }
+public sealed class SeatFieldDebugViewModel
+{
+    public required string FieldType { get; init; }
 
-    public required BitmapImage? BetRoiImage { get; init; }
+    public required BitmapImage? RawRoiImage { get; init; }
 
-    public required string NameBounds { get; init; }
+    public required BitmapImage? SelectedOcrInputImage { get; init; }
 
-    public required string StackBounds { get; init; }
+    public required string Bounds { get; init; }
 
-    public required string BetBounds { get; init; }
+    public required string SelectedVariant { get; init; }
+
+    public required string ParsedValue { get; init; }
+
+    public required string ParseRejectionReason { get; init; }
+
+    public required ObservableCollection<SeatFieldVariantDebugViewModel> Variants { get; init; }
+}
+
+public sealed class SeatFieldVariantDebugViewModel
+{
+    public required string VariantName { get; init; }
+
+    public required BitmapImage? Image { get; init; }
+
+    public required bool Selected { get; init; }
+
+    public required string OcrRawText { get; init; }
+
+    public required string ConfidenceText { get; init; }
+
+    public required string Backend { get; init; }
+
+    public required string RejectionReason { get; init; }
 }

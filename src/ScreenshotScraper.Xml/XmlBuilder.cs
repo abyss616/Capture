@@ -36,7 +36,7 @@ public sealed class XmlBuilder : IXmlBuilder
 
     private static XElement BuildGameElement(PartialHandHistorySnapshot snapshot)
     {
-        var orderedPlayers = OrderPlayersForXml(snapshot.Players);
+        var orderedPlayers = OrderPlayersForXml(snapshot);
 
         return new XElement(
             "game",
@@ -58,14 +58,16 @@ public sealed class XmlBuilder : IXmlBuilder
                 snapshot.Round1ObservedActions.Select(BuildActionElement)));
     }
 
-    private static IReadOnlyList<SnapshotPlayer> OrderPlayersForXml(IReadOnlyList<SnapshotPlayer> players)
+    private static IReadOnlyList<SnapshotPlayer> OrderPlayersForXml(PartialHandHistorySnapshot snapshot)
     {
+        var players = snapshot.Players;
+
         if (players.Count == 0)
         {
             return players;
         }
 
-        var dealerSeat = players.FirstOrDefault(player => player.Dealer)?.Seat;
+        var dealerSeat = TryGetDetectedDealerSeat(snapshot) ?? players.FirstOrDefault(player => player.Dealer)?.Seat;
         if (!dealerSeat.HasValue)
         {
             return players;
@@ -75,6 +77,14 @@ public sealed class XmlBuilder : IXmlBuilder
             .OrderBy(player => (player.Seat - dealerSeat.Value + 6) % 6)
             .ThenBy(player => player.Seat)
             .ToList();
+    }
+
+    private static int? TryGetDetectedDealerSeat(PartialHandHistorySnapshot snapshot)
+    {
+        var parsedValue = snapshot.DealerSeatField?.ParsedValue;
+        return int.TryParse(parsedValue, out var seat) && seat is >= 1 and <= 6
+            ? seat
+            : null;
     }
 
     private static XElement BuildPlayerElement(SnapshotPlayer player)

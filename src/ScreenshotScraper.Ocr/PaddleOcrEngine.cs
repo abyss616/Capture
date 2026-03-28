@@ -12,7 +12,11 @@ public sealed class PaddleOcrEngine : IOcrEngine, IDisposable
 {
     private readonly IPaddleOcrTransport _transport;
     private readonly PaddleOcrOptions _options;
-    private int _workerReady;
+    private readonly object _startupSync = new();
+    private Task? _startupTask;
+
+    private static readonly byte[] WarmupImageBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8//8/AwMDAwMDAwMABDsCA3x6k2kAAAAASUVORK5CYII=");
 
     public PaddleOcrEngine(PaddleOcrOptions options)
         : this(options, new PaddleOcrStdioTransport(options))
@@ -60,13 +64,37 @@ public sealed class PaddleOcrEngine : IOcrEngine, IDisposable
 
     public async Task EnsureWorkerReadyAsync(CancellationToken cancellationToken = default)
     {
-        if (Interlocked.CompareExchange(ref _workerReady, 1, 1) == 1)
+        Task startupTask;
+        lock (_startupSync)
         {
-            return;
+            _startupTask ??= StartupAndWarmupCoreAsync();
+            startupTask = _startupTask;
         }
 
-        await _transport.SelfTestAsync(cancellationToken).ConfigureAwait(false);
-        Interlocked.Exchange(ref _workerReady, 1);
+        await startupTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task StartupAndWarmupCoreAsync()
+    {
+        var startupStopwatch = Stopwatch.StartNew();
+        Debug.WriteLine("[PaddleOCR] Startup requested.");
+
+        await _transport.EnsureProcessStartedAsync(CancellationToken.None).ConfigureAwait(false);
+
+        Debug.WriteLine("[PaddleOCR] Warmup begin.");
+        var warmupRequest = PaddleOcrProtocol.BuildRequest(WarmupImageBytes, "warmup", "startup", _options.Language);
+        await _transport.InvokeStartupAsync(warmupRequest, CancellationToken.None).ConfigureAwait(false);
+
+        startupStopwatch.Stop();
+        Debug.WriteLine($"[PaddleOCR] Warmup complete. Worker ready in {startupStopwatch.ElapsedMilliseconds} ms.");
+    }
+
+    public void StartWorkerWarmupInBackground()
+    {
+        var startupTask = EnsureWorkerReadyAsync();
+        _ = startupTask.ContinueWith(
+            task => Debug.WriteLine($"[PaddleOCR] Background warmup failed: {task.Exception?.GetBaseException().Message}"),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     public void Dispose()

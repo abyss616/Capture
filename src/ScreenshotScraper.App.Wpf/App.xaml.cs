@@ -10,6 +10,7 @@ using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.Imaging;
 using ScreenshotScraper.Ocr;
 using ScreenshotScraper.Xml;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 
@@ -26,6 +27,12 @@ public partial class App : Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
+
+        var ocrEngine = _serviceProvider.GetRequiredService<IOcrEngine>();
+        if (ocrEngine is PaddleOcrEngine paddleOcrEngine)
+        {
+            paddleOcrEngine.StartWorkerWarmupInBackground();
+        }
 
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
@@ -74,8 +81,19 @@ public partial class App : Application
             timeoutMs = 15000;
         }
 
+        var startupTimeoutRaw = Environment.GetEnvironmentVariable("PADDLE_STARTUP_TIMEOUT_MS");
+        _ = int.TryParse(startupTimeoutRaw, out var startupTimeoutMs);
+        if (startupTimeoutMs <= 0)
+        {
+            startupTimeoutMs = 90000;
+        }
+
         var keepWarmRaw = Environment.GetEnvironmentVariable("PADDLE_KEEP_WARM");
         var keepWarm = !string.Equals(keepWarmRaw, "false", StringComparison.OrdinalIgnoreCase);
+        if (!keepWarm)
+        {
+            Debug.WriteLine("[PaddleOCR] KeepWorkerWarm=false was requested, but the app enforces warm worker lifetime for session performance.");
+        }
 
         return new OcrEngineOptions
         {
@@ -91,7 +109,11 @@ public partial class App : Application
 
                 Language = Environment.GetEnvironmentVariable("PADDLE_LANGUAGE") ?? "en",
                 TimeoutMilliseconds = timeoutMs,
-                KeepWorkerWarm = keepWarm
+                StartupTimeoutMilliseconds = startupTimeoutMs,
+                KeepWorkerWarm = true,
+                EnableHighPerformanceInference = string.Equals(Environment.GetEnvironmentVariable("PADDLE_ENABLE_HPI"), "true", StringComparison.OrdinalIgnoreCase),
+                UseTensorRt = string.Equals(Environment.GetEnvironmentVariable("PADDLE_USE_TENSORRT"), "true", StringComparison.OrdinalIgnoreCase),
+                Precision = Environment.GetEnvironmentVariable("PADDLE_PRECISION") ?? "fp32"
             }
         };
     }

@@ -89,17 +89,20 @@ public sealed class XmlBuilder : IXmlBuilder
 
     private static XElement BuildPlayerElement(SnapshotPlayer player)
     {
+        const string defaultWin = "€0.00"; // TODO: Replace with settled win amount when available from extraction/payout model.
+
         return new XElement(
             "player",
             new XAttribute("seat", player.Seat),
             new XAttribute("name", player.Name),
             new XAttribute("chips", player.Chips ?? string.Empty),
             new XAttribute("dealer", player.Dealer ? "1" : "0"),
+            new XAttribute("win", player.Win ?? defaultWin),
             new XAttribute("bet", player.Bet ?? string.Empty),
-            new XAttribute("position", player.Position ?? string.Empty),
-            new XAttribute("hero", player.IsHero ? "1" : "0"),
-            new XAttribute("visiblecards", player.HasVisibleCards ? "1" : "0"),
-            new XAttribute("folded", player.AppearsFolded ? "1" : "0"));
+            new XAttribute("muck", "0"),
+            new XAttribute("cashout", "0"),
+            new XAttribute("cashout_fee", "€0.00"),
+            new XAttribute("rakeamount", "€0.00"));
     }
 
     private static XElement BuildActionElement(SnapshotAction action)

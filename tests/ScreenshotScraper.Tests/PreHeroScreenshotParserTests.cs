@@ -217,6 +217,41 @@ public sealed class PreHeroScreenshotParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_UsesSeat1UnknownName_WhenSeat1NameRoiContainsTimeBankText()
+    {
+        var responses = new Queue<string>(new[]
+        {
+            string.Empty, // full-table OCR
+            string.Empty, // hero card OCR
+            "Time Bank", "97 BB", "",          // seat 1
+            "jkl102", "238.50 BB", "0.50 BB",  // seat 2
+            "Beng1994", "98.50 BB", "",        // seat 3
+            "Wulverate", "223.50 BB", "1 BB",  // seat 4
+            "Urlish", "73 BB", "",             // seat 5
+            "195030", "100 BB", ""             // seat 6
+        });
+
+        var parser = new PreHeroScreenshotParser(
+            new QueueOcrEngine(responses),
+            new OcrTableHeaderExtractor(),
+            new FixedLayoutSeatSnapshotExtractor(),
+            new OcrHeroCardExtractor(),
+            new StubTableVisionDetector(new TableDetectionResult
+            {
+                DealerSeat = 1,
+                DealerDetected = true,
+                DealerConfidence = 0.9,
+                OccupiedSeats = [1, 2, 3, 4, 5, 6],
+                PerSeatDiagnostics = new Dictionary<int, SeatDetectionDiagnostics>()
+            }),
+            new PreHeroActionInferencer());
+
+        var snapshot = await parser.ParseAsync(CreatePngImage());
+
+        Assert.Contains(snapshot.Players, player => player.Seat == 1 && player.Name == "Seat1_Unknown");
+    }
+
+    [Fact]
     public async Task ParseAsync_UsesExpandedHeroCardCropRegionForSecondOcrPass()
     {
         var engine = new RecordingOcrEngine(

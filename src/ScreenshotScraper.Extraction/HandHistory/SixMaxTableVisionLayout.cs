@@ -15,7 +15,7 @@ public sealed class SixMaxTableVisionLayout
         // Per-seat offsets are intentional because each seat panel has slightly different perspective and HUD overlap.
         _seatRois = new Dictionary<int, SeatVisionRoi>
         {
-            [1] = new(1, new Rectangle(255, 474, 120, 94), new Rectangle(425, 505, 185, 104), new Rectangle(432, 522, 165, 30), new Rectangle(432, 554, 165, 27), new Rectangle(432, 583, 165, 24)),
+            [1] = new(1, new Rectangle(255, 474, 120, 94), new Rectangle(425, 505, 185, 104), new Rectangle(432, 572, 165, 30), new Rectangle(432, 594, 165, 27), new Rectangle(432, 583, 165, 24)),
             [2] = new(2, new Rectangle(165, 438, 120, 94), new Rectangle(124, 500, 192, 104), new Rectangle(134, 517, 170, 30), new Rectangle(134, 550, 170, 27), new Rectangle(134, 579, 170, 24)),
             [3] = new(3, new Rectangle(158, 162, 120, 94), new Rectangle(56, 188, 182, 104), new Rectangle(66, 208, 165, 30), new Rectangle(66, 240, 165, 27), new Rectangle(66, 268, 165, 24)),
             [4] = new(4, new Rectangle(428, 142, 120, 94), new Rectangle(414, 76, 192, 104), new Rectangle(426, 95, 170, 30), new Rectangle(426, 128, 170, 27), new Rectangle(426, 157, 170, 24)),

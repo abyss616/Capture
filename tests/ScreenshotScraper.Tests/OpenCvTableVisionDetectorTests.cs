@@ -11,6 +11,17 @@ namespace ScreenshotScraper.Tests;
 public sealed class OpenCvTableVisionDetectorTests
 {
     [Fact]
+    public void SixMaxLayout_MovesSeat1NameAndStackRoisDownToTimeBankArea()
+    {
+        var layout = new SixMaxTableVisionLayout();
+
+        var seat1 = Assert.Single(layout.GetSeatRois(SixMaxTableVisionLayout.ReferenceWidth, SixMaxTableVisionLayout.ReferenceHeight).Where(seat => seat.Seat == 1));
+
+        Assert.Equal(new Rectangle(432, 572, 165, 30), seat1.NameRoi);
+        Assert.Equal(new Rectangle(432, 594, 165, 27), seat1.StackRoi);
+    }
+
+    [Fact]
     public void Detect_ReturnsCorrectDealerSeat_OnKnownLayout()
     {
         var detector = new OpenCvTableVisionDetector();

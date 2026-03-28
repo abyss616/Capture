@@ -16,7 +16,7 @@ public sealed class SixMaxTableVisionLayout
         _seatRois = new Dictionary<int, SeatVisionRoi>
         {
             [1] = new(1, new Rectangle(369, 453, 72, 72), new Rectangle(425, 505, 185, 104), NameRoi: new Rectangle(432, 565, 165, 30), StackRoi: new Rectangle(432, 590, 165, 27), new Rectangle(432, 583, 165, 24)),
-            [2] = new(2, new Rectangle(165, 438, 120, 94), new Rectangle(124, 500, 192, 104), NameRoi: new Rectangle(134, 510, 170, 30), StackRoi: new Rectangle(130, 535, 170, 27), new Rectangle(134, 579, 170, 24)),
+            [2] = new(2, new Rectangle(297, 432, 104, 80), new Rectangle(124, 500, 192, 104), NameRoi: new Rectangle(134, 510, 170, 30), StackRoi: new Rectangle(130, 535, 170, 27), new Rectangle(134, 579, 170, 24)),
             [3] = new(3, new Rectangle(158, 162, 120, 94), new Rectangle(56, 188, 182, 104), NameRoi: new Rectangle(60, 212, 165, 30), StackRoi: new Rectangle(50, 233, 165, 27), new Rectangle(66, 268, 165, 24)),
             [4] = new(4, new Rectangle(428, 142, 120, 94), new Rectangle(414, 76, 192, 104), NameRoi: new Rectangle(426, 125, 170, 30), StackRoi: new Rectangle(426, 145, 170, 27), new Rectangle(426, 157, 170, 24)),
             [5] = new(5, new Rectangle(818, 162, 120, 94), new Rectangle(806, 188, 188, 104), NameRoi: new Rectangle(820, 210, 164, 30), StackRoi: new Rectangle(820, 232, 164, 27), new Rectangle(820, 268, 164, 24)),

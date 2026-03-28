@@ -352,6 +352,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             var betRead = await ReadSeatRoiTextAsync(image, debugDirectory, seat.Seat, "bet", seat.BetRoi, bytes => SeatLocalOcrPreprocessor.BuildVariantsForNumeric(bytes), cancellationToken).ConfigureAwait(false);
 
             var name = SeatLocalTextParser.ParseName(nameRead.OcrText);
+            if (seat.Seat == HeroSeatIndex && ContainsTimeBankText(nameRead.OcrText))
+            {
+                name = "Seat1_Unknown";
+            }
             var chips = SeatLocalTextParser.ParseNumber(stackRead.OcrText);
             var bet = SeatLocalTextParser.ParseNumber(betRead.OcrText);
 
@@ -564,6 +568,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
     private static string FormatRect(Rectangle rect) => $"({rect.Left},{rect.Top},{rect.Width},{rect.Height})";
 
     private static string Sanitize(string? value) => (value ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+
+    private static bool ContainsTimeBankText(string? text)
+        => !string.IsNullOrWhiteSpace(text) && text.Contains("Time Bank", StringComparison.OrdinalIgnoreCase);
     private static string FormatConfidence(double? confidence) => confidence.HasValue ? confidence.Value.ToString("0.000") : "n/a";
     private static string FormatVariantDiagnostics(IReadOnlyList<SeatOcrAttemptSummary> attempts)
         => string.Join(", ", attempts.Select(attempt => $"{attempt.VariantName}[selected={attempt.Selected},backend={attempt.OcrResult.Backend},conf={FormatConfidence(attempt.OcrResult.Confidence)},raw='{Sanitize(attempt.OcrResult.Text)}',reject='{attempt.RejectionReason ?? string.Empty}']"));

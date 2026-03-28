@@ -231,8 +231,6 @@ def run_stdio_loop(args: argparse.Namespace) -> int:
                 is_warmup = str(payload.get("roiType", "")).strip().lower() == "warmup"
                 if is_warmup:
                     eprint("[PaddleOCR] warmup request start")
-                else:
-                    eprint("[PaddleOCR] request received")
                 response = handle_request(engine, payload)
         except Exception as ex:
             eprint("[PaddleOCR] request received")
@@ -241,8 +239,7 @@ def run_stdio_loop(args: argparse.Namespace) -> int:
         request_elapsed_ms = int((time.perf_counter() - request_start) * 1000)
         if is_warmup:
             eprint(f"[PaddleOCR] warmup request end ({request_elapsed_ms} ms)")
-        else:
-            eprint(f"[PaddleOCR] request completed ({request_elapsed_ms} ms)")
+
         print(json_dumps_line(response), flush=True)
 
     return 0

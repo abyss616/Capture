@@ -36,6 +36,8 @@ public sealed class XmlBuilder : IXmlBuilder
 
     private static XElement BuildGameElement(PartialHandHistorySnapshot snapshot)
     {
+        var orderedPlayers = OrderPlayersForXml(snapshot);
+
         return new XElement(
             "game",
             new XAttribute("gamecode", snapshot.GameCode ?? string.Empty),
@@ -44,7 +46,7 @@ public sealed class XmlBuilder : IXmlBuilder
                 new XElement("startdate", snapshot.StartDate?.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty),
                 new XElement(
                     "players",
-                    snapshot.Players.Select(BuildPlayerElement))),
+                    orderedPlayers.Select(BuildPlayerElement))),
             new XElement(
                 "round",
                 new XAttribute("no", "0"),
@@ -54,6 +56,36 @@ public sealed class XmlBuilder : IXmlBuilder
                 new XAttribute("no", "1"),
                 snapshot.Round1PocketCards.Select(BuildPocketCardElement),
                 snapshot.Round1ObservedActions.Select(BuildActionElement)));
+    }
+
+    private static IReadOnlyList<SnapshotPlayer> OrderPlayersForXml(PartialHandHistorySnapshot snapshot)
+    {
+        var players = snapshot.Players;
+        if (players.Count == 0)
+        {
+            return players;
+        }
+
+        var dealerSeat = ResolveDealerSeat(snapshot);
+        if (!dealerSeat.HasValue)
+        {
+            return players;
+        }
+
+        return players
+            .OrderBy(player => (player.Seat - dealerSeat.Value + 6) % 6)
+            .ThenBy(player => player.Seat)
+            .ToList();
+    }
+
+    private static int? ResolveDealerSeat(PartialHandHistorySnapshot snapshot)
+    {
+        if (int.TryParse(snapshot.DealerSeatField?.ParsedValue, out var detectedDealerSeat))
+        {
+            return detectedDealerSeat;
+        }
+
+        return snapshot.Players.FirstOrDefault(player => player.Dealer)?.Seat;
     }
 
     private static XElement BuildPlayerElement(SnapshotPlayer player)

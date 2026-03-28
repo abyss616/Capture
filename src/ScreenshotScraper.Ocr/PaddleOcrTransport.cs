@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 
@@ -5,9 +6,11 @@ namespace ScreenshotScraper.Ocr;
 
 internal interface IPaddleOcrTransport : IDisposable
 {
+    Task EnsureProcessStartedAsync(CancellationToken cancellationToken);
+
     Task<string> InvokeAsync(string requestJson, CancellationToken cancellationToken);
 
-    Task SelfTestAsync(CancellationToken cancellationToken);
+    Task<string> InvokeStartupAsync(string requestJson, CancellationToken cancellationToken);
 }
 
 internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
@@ -29,7 +32,17 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
 
     public async Task<string> InvokeAsync(string requestJson, CancellationToken cancellationToken)
     {
-        using var timeout = new CancellationTokenSource(_options.TimeoutMilliseconds);
+        return await InvokeCoreAsync(requestJson, _options.TimeoutMilliseconds, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> InvokeStartupAsync(string requestJson, CancellationToken cancellationToken)
+    {
+        return await InvokeCoreAsync(requestJson, _options.StartupTimeoutMilliseconds, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> InvokeCoreAsync(string requestJson, int timeoutMilliseconds, CancellationToken cancellationToken)
+    {
+        using var timeout = new CancellationTokenSource(timeoutMilliseconds);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 
         await _lock.WaitAsync(linked.Token).ConfigureAwait(false);
@@ -60,7 +73,7 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            throw new TimeoutException($"PaddleOCR worker timed out after {_options.TimeoutMilliseconds} ms.");
+            throw new TimeoutException($"PaddleOCR worker timed out after {timeoutMilliseconds} ms.");
         }
         finally
         {
@@ -73,13 +86,20 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
         }
     }
 
-    public async Task SelfTestAsync(CancellationToken cancellationToken)
+    public async Task EnsureProcessStartedAsync(CancellationToken cancellationToken)
     {
-        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(_options.StartupTimeoutMilliseconds);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+
+        await _lock.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
             EnsureProcessStarted();
             ThrowIfWorkerExited("during self-test");
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException($"PaddleOCR worker startup timed out after {_options.StartupTimeoutMilliseconds} ms.");
         }
         finally
         {
@@ -114,7 +134,7 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
         var startInfo = new ProcessStartInfo
         {
             FileName = _resolvedPythonPath,
-            Arguments = $"\"{_resolvedWorkerScriptPath}\" --stdio --lang {_options.Language}",
+            Arguments = BuildArguments(_resolvedWorkerScriptPath),
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -126,6 +146,8 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
 
         _process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Unable to start PaddleOCR python worker process.");
+
+        Debug.WriteLine($"[PaddleOCR] Worker process launched (pid={_process.Id}).");
 
         _process.ErrorDataReceived += OnWorkerErrorDataReceived;
         _process.BeginErrorReadLine();
@@ -139,6 +161,35 @@ internal sealed class PaddleOcrStdioTransport : IPaddleOcrTransport
         {
             throw BuildWorkerExitedException("immediately after startup");
         }
+    }
+
+    private string BuildArguments(string resolvedWorkerScriptPath)
+    {
+        var args = new List<string>
+        {
+            $"\"{resolvedWorkerScriptPath}\"",
+            "--stdio",
+            "--lang",
+            _options.Language
+        };
+
+        if (_options.EnableHighPerformanceInference)
+        {
+            args.Add("--enable-hpi");
+        }
+
+        if (_options.UseTensorRt)
+        {
+            args.Add("--use-tensorrt");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.Precision))
+        {
+            args.Add("--precision");
+            args.Add(_options.Precision);
+        }
+
+        return string.Join(" ", args);
     }
 
     private void OnWorkerErrorDataReceived(object sender, DataReceivedEventArgs args)

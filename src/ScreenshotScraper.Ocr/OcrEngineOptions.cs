@@ -15,5 +15,13 @@ public sealed class PaddleOcrOptions
 
     public int TimeoutMilliseconds { get; set; } = 15000;
 
+    public int StartupTimeoutMilliseconds { get; set; } = 90000;
+
     public bool KeepWorkerWarm { get; set; } = true;
+
+    public bool EnableHighPerformanceInference { get; set; }
+
+    public bool UseTensorRt { get; set; }
+
+    public string Precision { get; set; } = "fp32";
 }

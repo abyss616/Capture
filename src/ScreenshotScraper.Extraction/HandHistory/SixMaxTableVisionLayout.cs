@@ -15,12 +15,12 @@ public sealed class SixMaxTableVisionLayout
         // Per-seat offsets are intentional because each seat panel has slightly different perspective and HUD overlap.
         _seatRois = new Dictionary<int, SeatVisionRoi>
         {
-            [1] = new(1, new Rectangle(255, 474, 120, 94), new Rectangle(425, 505, 185, 104), new Rectangle(432, 547, 165, 30), new Rectangle(432, 579, 165, 27), new Rectangle(432, 583, 165, 24)),
-            [2] = new(2, new Rectangle(165, 438, 120, 94), new Rectangle(124, 500, 192, 104), new Rectangle(134, 517, 170, 30), new Rectangle(134, 550, 170, 27), new Rectangle(134, 579, 170, 24)),
-            [3] = new(3, new Rectangle(158, 162, 120, 94), new Rectangle(56, 188, 182, 104), new Rectangle(66, 208, 165, 30), new Rectangle(66, 240, 165, 27), new Rectangle(66, 268, 165, 24)),
-            [4] = new(4, new Rectangle(428, 142, 120, 94), new Rectangle(414, 76, 192, 104), new Rectangle(426, 95, 170, 30), new Rectangle(426, 128, 170, 27), new Rectangle(426, 157, 170, 24)),
-            [5] = new(5, new Rectangle(818, 162, 120, 94), new Rectangle(806, 188, 188, 104), new Rectangle(820, 208, 164, 30), new Rectangle(820, 240, 164, 27), new Rectangle(820, 268, 164, 24)),
-            [6] = new(6, new Rectangle(812, 438, 120, 94), new Rectangle(730, 500, 196, 104), new Rectangle(748, 517, 164, 30), new Rectangle(748, 550, 164, 27), new Rectangle(748, 579, 164, 24))
+            [1] = new(1, new Rectangle(255, 474, 120, 94), new Rectangle(425, 505, 185, 104), NameRoi: new Rectangle(432, 565, 165, 30), StackRoi: new Rectangle(432, 590, 165, 27), new Rectangle(432, 583, 165, 24)),
+            [2] = new(2, new Rectangle(165, 438, 120, 94), new Rectangle(124, 500, 192, 104), NameRoi: new Rectangle(134, 510, 170, 30), StackRoi: new Rectangle(130, 535, 170, 27), new Rectangle(134, 579, 170, 24)),
+            [3] = new(3, new Rectangle(158, 162, 120, 94), new Rectangle(56, 188, 182, 104), NameRoi: new Rectangle(60, 212, 165, 30), StackRoi: new Rectangle(50, 233, 165, 27), new Rectangle(66, 268, 165, 24)),
+            [4] = new(4, new Rectangle(428, 142, 120, 94), new Rectangle(414, 76, 192, 104), NameRoi: new Rectangle(426, 125, 170, 30), StackRoi: new Rectangle(426, 145, 170, 27), new Rectangle(426, 157, 170, 24)),
+            [5] = new(5, new Rectangle(818, 162, 120, 94), new Rectangle(806, 188, 188, 104), NameRoi: new Rectangle(820, 210, 164, 30), StackRoi: new Rectangle(820, 232, 164, 27), new Rectangle(820, 268, 164, 24)),
+            [6] = new(6, new Rectangle(812, 438, 120, 94), new Rectangle(730, 500, 196, 104), NameRoi: new Rectangle(748, 510, 164, 30), StackRoi: new Rectangle(735, 535, 164, 27), new Rectangle(748, 579, 164, 24))
         };
     }
 

@@ -193,6 +193,24 @@
                         </ScrollViewer>
                     </DockPanel>
                 </TabItem>
+                <TabItem Header="Hero Card OCR Input">
+                    <DockPanel Margin="8">
+                        <TextBlock DockPanel.Dock="Top"
+                                   Margin="0,0,0,8"
+                                   Text="{Binding HeroCardOcrInputStatus}"
+                                   FontFamily="Consolas"
+                                   TextWrapping="Wrap" />
+                        <Border BorderBrush="#D0D0D0"
+                                BorderThickness="1"
+                                Background="#FAFAFA"
+                                Padding="8">
+                            <Image Source="{Binding HeroCardOcrInputImage}"
+                                   Stretch="Uniform"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                        </Border>
+                    </DockPanel>
+                </TabItem>
                 <TabItem Header="Paddle OCR Input">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Auto"

@@ -342,7 +342,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var rankRoi = OcrHeroCardExtractor.CropRankRegion(cardBitmap.Width, cardBitmap.Height);
             using var rankBitmap = cardBitmap.Clone(rankRoi, cardBitmap.PixelFormat);
             using var preprocessedRankBitmap = OcrHeroCardExtractor.PreprocessRankImage(rankBitmap);
-            HeroCardOcrInputImages.Add(BitmapImageFactory.Create(EncodeBitmap(preprocessedRankBitmap)));
+            BitmapImage item = BitmapImageFactory.Create(EncodeBitmap(preprocessedRankBitmap))??new BitmapImage();
+            HeroCardOcrInputImages.Add(item);
         }
 
         HeroCardOcrInputStatus = HeroCardOcrInputImages.Count == 2
@@ -362,8 +363,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         HeroCardOcrInputImages.Clear();
-        HeroCardOcrInputImages.Add(BitmapImageFactory.Create(File.ReadAllBytes(leftPath)));
-        HeroCardOcrInputImages.Add(BitmapImageFactory.Create(File.ReadAllBytes(rightPath)));
+        var item = BitmapImageFactory.Create(File.ReadAllBytes(leftPath));
+        HeroCardOcrInputImages.Add(item?? new BitmapImage());
+        item = BitmapImageFactory.Create(File.ReadAllBytes(rightPath));
+        HeroCardOcrInputImages.Add(item ?? new BitmapImage());
         HeroCardOcrInputStatus = $"Loaded exact PaddleOCR card-rank inputs from debug artifacts: {Path.GetFileName(leftPath)}, {Path.GetFileName(rightPath)}.";
         return true;
     }

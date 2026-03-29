@@ -24,7 +24,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         _ocrEngine = ocrEngine;
     }
 
-    public async Task<string> ExtractHeroCardsAsync(CapturedImage image, string rawText, CancellationToken cancellationToken = default)
+    public async Task<string> ExtractHeroCardsAsync(CapturedImage image, CancellationToken cancellationToken = default)
     {
         var extraction = await TryExtractFromImageAsync(image, cancellationToken).ConfigureAwait(false);
         if (extraction.Success)
@@ -33,9 +33,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         Debug.WriteLine($"[HeroRankOCR] Rank-only extraction failed: {extraction.Diagnostics}");
-        return CardNotationFormatter.TryNormalizePairFromOcrText(rawText, out var cards)
-            ? cards
-            : string.Empty;
+        return string.Empty;
     }
 
     private async Task<HeroRankExtractionResult> TryExtractFromImageAsync(CapturedImage image, CancellationToken cancellationToken)

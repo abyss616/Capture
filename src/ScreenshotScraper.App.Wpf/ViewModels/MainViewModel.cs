@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -28,8 +30,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _captureMetadata = "No capture metadata available yet.";
     private CapturedImage? _capturedImage;
     private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
-    private BitmapImage? _heroCardOcrInputImage;
-    private string _heroCardOcrInputStatus = "Hero card OCR input preview will be shown after a capture or screenshot upload.";
+    private string _heroCardOcrInputStatus = "Hero card OCR input previews will be shown after a capture or screenshot upload.";
 
     public MainViewModel(
         IScreenshotService screenshotService,
@@ -45,6 +46,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<SeatRoiDebugViewModel> SeatRoiDebugItems { get; } = [];
     public ObservableCollection<SeatOcrInputDebugViewModel> SeatOcrInputDebugItems { get; } = [];
+    public ObservableCollection<BitmapImage> HeroCardOcrInputImages { get; } = [];
 
     public BitmapImage? PreviewImage
     {
@@ -103,16 +105,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set
         {
             _captureMetadata = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public BitmapImage? HeroCardOcrInputImage
-    {
-        get => _heroCardOcrInputImage;
-        private set
-        {
-            _heroCardOcrInputImage = value;
             OnPropertyChanged();
         }
     }
@@ -328,16 +320,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void BuildHeroCardOcrInputPreview(CapturedImage capturedImage)
     {
+        HeroCardOcrInputImages.Clear();
         var crop = BuildHeroCardOcrCrop(capturedImage);
         if (crop.ImageBytes.Length == 0)
         {
-            HeroCardOcrInputImage = null;
-            HeroCardOcrInputStatus = "Hero card OCR input crop is unavailable for this screenshot.";
+            HeroCardOcrInputStatus = "Hero card OCR input crops are unavailable for this screenshot.";
             return;
         }
 
-        HeroCardOcrInputImage = BitmapImageFactory.Create(crop.ImageBytes);
-        HeroCardOcrInputStatus = $"Hero-card OCR input region: {crop.Width}x{crop.Height}. This is the exact crop sent to PaddleOCR.";
+        using var heroCropStream = new MemoryStream(crop.ImageBytes);
+        using var heroCropBitmap = new Bitmap(heroCropStream);
+        var cardBounds = OcrHeroCardExtractor.FindCardBounds(heroCropBitmap);
+
+        foreach (var cardRect in cardBounds.OrderBy(bounds => bounds.Left).Take(2))
+        {
+            using var cardBitmap = heroCropBitmap.Clone(cardRect, heroCropBitmap.PixelFormat);
+            var rankRoi = OcrHeroCardExtractor.CropRankRegion(cardBitmap.Width, cardBitmap.Height);
+            using var rankBitmap = cardBitmap.Clone(rankRoi, cardBitmap.PixelFormat);
+            using var preprocessedRankBitmap = OcrHeroCardExtractor.PreprocessRankImage(rankBitmap);
+            HeroCardOcrInputImages.Add(BitmapImageFactory.Create(EncodeBitmap(preprocessedRankBitmap)));
+        }
+
+        HeroCardOcrInputStatus = HeroCardOcrInputImages.Count == 2
+            ? "Showing the two exact preprocessed rank crops sent to OCR (left/right cards)."
+            : $"Expected 2 OCR input images but found {HeroCardOcrInputImages.Count}.";
     }
 
     private void TryLoadSeatOcrSummary(CapturedImage? capturedImage)
@@ -433,6 +439,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         using var crop = new Mat(source, bounded);
         Cv2.ImEncode(".png", crop, out var encoded);
         return encoded;
+    }
+
+    private static byte[] EncodeBitmap(Bitmap bitmap)
+    {
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        return stream.ToArray();
     }
 
     private static CapturedImage BuildHeroCardOcrCrop(CapturedImage image)

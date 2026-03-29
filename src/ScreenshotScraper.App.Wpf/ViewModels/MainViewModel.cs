@@ -449,10 +449,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         var crop = new Rect(
-            x: (int)(source.Width * 0.36),
-            y: (int)(source.Height * 0.58),
-            width: Math.Max(1, (int)(source.Width * 0.28)),
-            height: Math.Max(1, (int)(source.Height * 0.30)));
+             (int)(source.Width * 0.36),
+             (int)(source.Height * 0.58),
+             Math.Max(1, (int)(source.Width * 0.28)),
+             Math.Max(1, (int)(source.Height * 0.30)));
         crop = crop.Intersect(new Rect(0, 0, source.Width, source.Height));
         if (crop.Width <= 0 || crop.Height <= 0)
         {

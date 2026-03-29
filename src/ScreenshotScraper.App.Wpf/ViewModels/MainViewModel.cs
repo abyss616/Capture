@@ -30,7 +30,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _captureMetadata = "No capture metadata available yet.";
     private CapturedImage? _capturedImage;
     private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
-    private string _heroCardOcrInputStatus = "Hero card OCR input previews will be shown after a capture or screenshot upload.";
+    private string _heroCardOcrInputStatus = "Run XML to load the two exact hero-card OCR input images (left/right rank crops).";
 
     public MainViewModel(
         IScreenshotService screenshotService,
@@ -225,7 +225,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         TryLoadSeatOcrSummary(_capturedImage);
         if (_capturedImage is not null)
         {
-            BuildHeroCardOcrInputPreview(_capturedImage);
+            var loadedExactInputs = TryLoadHeroCardOcrDebugArtifacts(_capturedImage);
+            if (!loadedExactInputs)
+            {
+                BuildHeroCardOcrInputPreview(_capturedImage);
+            }
         }
     }
 
@@ -342,8 +346,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         HeroCardOcrInputStatus = HeroCardOcrInputImages.Count == 2
-            ? "Showing the two exact preprocessed rank crops sent to OCR (left/right cards)."
+            ? "Showing estimated OCR inputs from current screenshot. Run XML to load exact images captured during OCR execution."
             : $"Expected 2 OCR input images but found {HeroCardOcrInputImages.Count}.";
+    }
+
+    private bool TryLoadHeroCardOcrDebugArtifacts(CapturedImage capturedImage)
+    {
+        var timestamp = (capturedImage.CapturedAtUtc == default ? DateTime.UtcNow : capturedImage.CapturedAtUtc).ToString("yyyyMMdd_HHmmssfff");
+        var debugDirectory = Path.Combine("debug", "output", timestamp);
+        var leftPath = Path.Combine(debugDirectory, "rank_0_preprocessed.png");
+        var rightPath = Path.Combine(debugDirectory, "rank_1_preprocessed.png");
+        if (!File.Exists(leftPath) || !File.Exists(rightPath))
+        {
+            return false;
+        }
+
+        HeroCardOcrInputImages.Clear();
+        HeroCardOcrInputImages.Add(BitmapImageFactory.Create(File.ReadAllBytes(leftPath)));
+        HeroCardOcrInputImages.Add(BitmapImageFactory.Create(File.ReadAllBytes(rightPath)));
+        HeroCardOcrInputStatus = $"Loaded exact PaddleOCR card-rank inputs from debug artifacts: {Path.GetFileName(leftPath)}, {Path.GetFileName(rightPath)}.";
+        return true;
     }
 
     private void TryLoadSeatOcrSummary(CapturedImage? capturedImage)

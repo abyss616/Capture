@@ -48,7 +48,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var heroCardRegionImage = CropHeroCardRegion(image);
         //File.WriteAllBytes(@"C:\temp\hero.png", heroCardRegionImage.ImageBytes);
         var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
-        var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
+        var heroCards = await _cardExtractor.ExtractHeroCardsAsync(heroCardRegionImage, heroCardRegionText, cancellationToken).ConfigureAwait(false);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
         var seatLocalResult = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);

@@ -6,7 +6,6 @@ using ScreenshotScraper.Core.Models.HandHistory;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Text;
 using System.Text.Json;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
@@ -47,6 +46,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var header = _tableHeaderExtractor.Extract(image, rawText);
         var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
         var heroCardRegionImage = CropHeroCardRegion(image);
+        //File.WriteAllBytes(@"C:\temp\hero.png", heroCardRegionImage.ImageBytes);
         var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
         var heroCards = _cardExtractor.ExtractHeroCards(heroCardRegionImage, heroCardRegionText);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);

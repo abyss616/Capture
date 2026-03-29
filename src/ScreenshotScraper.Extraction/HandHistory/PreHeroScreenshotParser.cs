@@ -640,10 +640,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             }
 
             var crop = new Rectangle(
-                x: (int)(width * 0.36),
-                y: (int)(height * 0.58),
-                width: Math.Max(1, (int)(width * 0.28)),
-                height: Math.Max(1, (int)(height * 0.30)));
+                x: 440,
+                y:480,
+                width: 150,
+                height: 70);
             crop.Intersect(new Rectangle(0, 0, width, height));
             if (crop.Width == 0 || crop.Height == 0)
             {

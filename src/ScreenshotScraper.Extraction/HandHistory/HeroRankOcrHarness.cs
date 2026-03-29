@@ -46,7 +46,7 @@ public static class HeroRankOcrHarness
         using var engine = new PaddleOcrEngine(options.Paddle);
         var extractor = new OcrHeroCardExtractor(engine);
 
-        var ranks = await extractor.ExtractHeroCardsAsync(image, rawText: string.Empty, cancellationToken).ConfigureAwait(false);
+        var ranks = await extractor.ExtractHeroCardsAsync(image, cancellationToken).ConfigureAwait(false);
 
         Console.WriteLine($"Input: {sampleHeroCropPath}");
         Console.WriteLine($"Detected ranks: {ranks}");

@@ -47,8 +47,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
         var heroCardRegionImage = CropHeroCardRegion(image);
         //File.WriteAllBytes(@"C:\temp\hero.png", heroCardRegionImage.ImageBytes);
-        var heroCardRegionText = await ReadHeroCardRegionTextAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
-        var heroCards = await _cardExtractor.ExtractHeroCardsAsync(heroCardRegionImage, heroCardRegionText, cancellationToken).ConfigureAwait(false);
+        var heroCards = await _cardExtractor.ExtractHeroCardsAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
         var seatLocalResult = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);
@@ -608,16 +607,6 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return players.Any(player => player.Seat == HeroSeatIndex)
             ? HeroSeatIndex
             : null;
-    }
-
-    private async Task<string> ReadHeroCardRegionTextAsync(CapturedImage heroCardRegionImage, CancellationToken cancellationToken)
-    {
-        if (heroCardRegionImage.ImageBytes.Length == 0)
-        {
-            return string.Empty;
-        }
-
-        return (await _ocrEngine.ReadAsync(heroCardRegionImage, new OcrRequest("hero_cards", "raw"), cancellationToken).ConfigureAwait(false)).Text;
     }
 
     private static CapturedImage CropHeroCardRegion(CapturedImage image)

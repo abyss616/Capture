@@ -4,5 +4,5 @@ namespace ScreenshotScraper.Extraction.HandHistory;
 
 public interface ICardExtractor
 {
-    string ExtractHeroCards(CapturedImage image, string rawText);
+    Task<string> ExtractHeroCardsAsync(CapturedImage image, string rawText, CancellationToken cancellationToken = default);
 }

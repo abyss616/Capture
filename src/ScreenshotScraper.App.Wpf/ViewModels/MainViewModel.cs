@@ -28,6 +28,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _captureMetadata = "No capture metadata available yet.";
     private CapturedImage? _capturedImage;
     private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
+    private BitmapImage? _heroCardOcrInputImage;
+    private string _heroCardOcrInputStatus = "Hero card OCR input preview will be shown after a capture or screenshot upload.";
 
     public MainViewModel(
         IScreenshotService screenshotService,
@@ -105,6 +107,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public BitmapImage? HeroCardOcrInputImage
+    {
+        get => _heroCardOcrInputImage;
+        private set
+        {
+            _heroCardOcrInputImage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string HeroCardOcrInputStatus
+    {
+        get => _heroCardOcrInputStatus;
+        private set
+        {
+            _heroCardOcrInputStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
     public async Task CaptureAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -117,6 +139,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             XmlContent = "Capture complete. Generate XML to parse the current screenshot up to hero's first action.";
             StatusMessage = $"Captured {_capturedImage.WindowTitle ?? "window"} at {_capturedImage.CapturedAtUtc:O}.";
             BuildSeatRoiDebugArtifacts(_capturedImage);
+            BuildHeroCardOcrInputPreview(_capturedImage);
         }
         catch (Exception exception)
         {
@@ -162,6 +185,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         XmlContent = "Screenshot uploaded. Generate XML to parse the current screenshot up to hero's first action.";
         StatusMessage = $"Loaded screenshot '{Path.GetFileName(filePath)}' ({bitmap.PixelWidth}x{bitmap.PixelHeight}).";
         BuildSeatRoiDebugArtifacts(_capturedImage);
+        BuildHeroCardOcrInputPreview(_capturedImage);
 
         return Task.CompletedTask;
     }
@@ -207,6 +231,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         TryLoadSeatOcrDebugArtifacts(_capturedImage);
         TryLoadSeatOcrSummary(_capturedImage);
+        if (_capturedImage is not null)
+        {
+            BuildHeroCardOcrInputPreview(_capturedImage);
+        }
     }
 
     private void ApplyExtractionResult(ExtractionResult extractionResult)
@@ -296,6 +324,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         SeatRoiStatus = $"Showing {SeatRoiDebugItems.Count} seat ROI panels (full + raw name/stack/bet crops). Run XML to see exact OCR-input variants.";
+    }
+
+    private void BuildHeroCardOcrInputPreview(CapturedImage capturedImage)
+    {
+        var crop = BuildHeroCardOcrCrop(capturedImage);
+        if (crop.ImageBytes.Length == 0)
+        {
+            HeroCardOcrInputImage = null;
+            HeroCardOcrInputStatus = "Hero card OCR input crop is unavailable for this screenshot.";
+            return;
+        }
+
+        HeroCardOcrInputImage = BitmapImageFactory.Create(crop.ImageBytes);
+        HeroCardOcrInputStatus = $"Hero-card OCR input region: {crop.Width}x{crop.Height}. This is the exact crop sent to PaddleOCR.";
     }
 
     private void TryLoadSeatOcrSummary(CapturedImage? capturedImage)
@@ -391,6 +433,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
         using var crop = new Mat(source, bounded);
         Cv2.ImEncode(".png", crop, out var encoded);
         return encoded;
+    }
+
+    private static CapturedImage BuildHeroCardOcrCrop(CapturedImage image)
+    {
+        if (image.ImageBytes.Length == 0)
+        {
+            return new CapturedImage();
+        }
+
+        using var source = Cv2.ImDecode(image.ImageBytes, ImreadModes.Color);
+        if (source.Empty())
+        {
+            return new CapturedImage();
+        }
+
+        var crop = new Rect(
+            x: (int)(source.Width * 0.36),
+            y: (int)(source.Height * 0.58),
+            width: Math.Max(1, (int)(source.Width * 0.28)),
+            height: Math.Max(1, (int)(source.Height * 0.30)));
+        crop = crop.Intersect(new Rect(0, 0, source.Width, source.Height));
+        if (crop.Width <= 0 || crop.Height <= 0)
+        {
+            return new CapturedImage();
+        }
+
+        using var cropped = new Mat(source, crop);
+        Cv2.ImEncode(".png", cropped, out var encoded);
+        return new CapturedImage
+        {
+            ImageBytes = encoded,
+            Width = crop.Width,
+            Height = crop.Height,
+            CapturedAtUtc = image.CapturedAtUtc,
+            SourceDescription = $"{image.SourceDescription}|HeroCardsRegion",
+            WindowTitle = image.WindowTitle
+        };
     }
 
     private static System.Drawing.Rectangle BuildSeatBounds(SeatVisionRoi seat)

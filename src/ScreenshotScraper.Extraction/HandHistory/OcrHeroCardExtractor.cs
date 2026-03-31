@@ -112,7 +112,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                     return HeroCardsExtractionResult.Failed($"Card {i} rank: {recognition.Diagnostics}");
                 }
 
-                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, image, i).ConfigureAwait(false);
+                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, suitRoiRaw, image, i).ConfigureAwait(false);
                 if (!suitRecognition.Success)
                 {
                     return HeroCardsExtractionResult.Failed($"Card {i} suit: {suitRecognition.Diagnostics}");
@@ -348,7 +348,23 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return grayscale;
     }
 
-    public static Bitmap PreprocessSuitImage(Bitmap suitRoi) => PreprocessRankImage(suitRoi);
+    public static Bitmap PreprocessSuitImage(Bitmap suitRoi)
+    {
+        // Keep suit preprocessing minimal and shape-preserving for template matching.
+        var processed = new Bitmap(suitRoi.Width, suitRoi.Height, PixelFormat.Format24bppRgb);
+        const byte threshold = 215;
+        for (var y = 0; y < suitRoi.Height; y++)
+        {
+            for (var x = 0; x < suitRoi.Width; x++)
+            {
+                var px = suitRoi.GetPixel(x, y);
+                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
+                processed.SetPixel(x, y, lum < threshold ? Color.Black : Color.White);
+            }
+        }
+
+        return processed;
+    }
 
     private async Task<RankRecognitionResult> RecognizeRankAsync(Bitmap preprocessedRankRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
     {
@@ -380,16 +396,19 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return RankRecognitionResult.Succeeded(normalized);
     }
 
-    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, CapturedImage source, int cardIndex)
+    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, Bitmap rawSuitRoi, CapturedImage source, int cardIndex)
     {
         var debugDirectory = EnsureDebugDirectory(source.CapturedAtUtc == default ? DateTime.UtcNow : source.CapturedAtUtc);
+        var colorFamily = DetectSuitColorFamily(rawSuitRoi);
         using var trimmedSuit = TrimSuitWhitespace(preprocessedSuitRoi);
         SaveBitmap(trimmedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_trimmed.png"));
         using var resizedSuit = ResizeSuitForMatch(trimmedSuit, 64, 64);
-        SaveBitmap(resizedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_resized.png"));
+        SaveBitmap(resizedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_resized_padded.png"));
 
-        var templateMatch = RecognizeSuitFromTemplates(resizedSuit);
+        var templateMatch = RecognizeSuitFromTemplates(resizedSuit, colorFamily);
         SaveSuitClassificationDebugArtifact(debugDirectory, cardIndex, templateMatch);
+        Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; color_family={templateMatch.ColorFamily}; candidates={string.Join(",", templateMatch.CandidateSuits)}");
+        Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; scores={string.Join(", ", templateMatch.Scores.OrderByDescending(x => x.Value).Select(x => $"{x.Key}:{x.Value:0.000}"))}");
 
         if (templateMatch.Confidence >= 0.55d && templateMatch.NormalizedSuit is not null)
         {
@@ -617,23 +636,29 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         public static SuitRecognitionResult Failed(string diagnostics) => new(false, null, diagnostics);
     }
 
-    private sealed record SuitShapeRecognition(string? NormalizedSuit, double Confidence, Dictionary<string, double> Scores);
+    private sealed record SuitShapeRecognition(string? NormalizedSuit, double Confidence, Dictionary<string, double> Scores, string ColorFamily, IReadOnlyList<string> CandidateSuits);
 
-    private static SuitShapeRecognition RecognizeSuitFromTemplates(Bitmap preprocessedSuit)
+    private static SuitShapeRecognition RecognizeSuitFromTemplates(Bitmap preprocessedSuit, SuitColorFamily colorFamily)
     {
         var mask = BitmapToBinaryMask(preprocessedSuit);
-        var scores = ScoreSuitTemplates(mask, ["s", "c", "h", "d"]);
+        var candidates = colorFamily switch
+        {
+            SuitColorFamily.Black => new[] { "s", "c" },
+            SuitColorFamily.Red => new[] { "h", "d" },
+            _ => new[] { "s", "c", "h", "d" }
+        };
+        var scores = ScoreSuitTemplates(mask, candidates);
         var ordered = scores.OrderByDescending(kvp => kvp.Value).ToList();
         if (ordered.Count == 0)
         {
-            return new SuitShapeRecognition(null, 0d, scores);
+            return new SuitShapeRecognition(null, 0d, scores, colorFamily.ToString().ToLowerInvariant(), candidates);
         }
 
         var top = ordered[0];
         var second = ordered.Count > 1 ? ordered[1].Value : 0d;
         var margin = Math.Max(0d, top.Value - second);
         var confidence = Math.Clamp((top.Value * 0.75d) + (margin * 0.25d), 0d, 1d);
-        return new SuitShapeRecognition(top.Key, confidence, scores);
+        return new SuitShapeRecognition(top.Key, confidence, scores, colorFamily.ToString().ToLowerInvariant(), candidates);
     }
 
     private static Bitmap TrimSuitWhitespace(Bitmap suitRoi, byte backgroundThreshold = 245, int padding = 1)
@@ -681,8 +706,46 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         graphics.Clear(Color.White);
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.DrawImage(suit, 0, 0, width, height);
+        var scale = Math.Min(width / (double)suit.Width, height / (double)suit.Height);
+        var scaledWidth = Math.Max(1, (int)Math.Round(suit.Width * scale));
+        var scaledHeight = Math.Max(1, (int)Math.Round(suit.Height * scale));
+        var offsetX = (width - scaledWidth) / 2;
+        var offsetY = (height - scaledHeight) / 2;
+        graphics.DrawImage(suit, offsetX, offsetY, scaledWidth, scaledHeight);
         return resized;
+    }
+
+    private static SuitColorFamily DetectSuitColorFamily(Bitmap suitRoi)
+    {
+        var foregroundPixels = 0;
+        var redDominantPixels = 0;
+
+        for (var y = 0; y < suitRoi.Height; y++)
+        {
+            for (var x = 0; x < suitRoi.Width; x++)
+            {
+                var px = suitRoi.GetPixel(x, y);
+                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
+                if (lum > 245)
+                {
+                    continue;
+                }
+
+                foregroundPixels++;
+                if (px.R > px.G + 12 && px.R > px.B + 12)
+                {
+                    redDominantPixels++;
+                }
+            }
+        }
+
+        if (foregroundPixels == 0)
+        {
+            return SuitColorFamily.Unknown;
+        }
+
+        var redRatio = redDominantPixels / (double)foregroundPixels;
+        return redRatio >= 0.12d ? SuitColorFamily.Red : SuitColorFamily.Black;
     }
 
     private static bool[,] BitmapToBinaryMask(Bitmap bitmap, byte threshold = 200)
@@ -815,6 +878,8 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     {
         var path = Path.Combine(debugDirectory, $"suit_{cardIndex}_classification.txt");
         var builder = new StringBuilder();
+        builder.AppendLine($"color_family={recognition.ColorFamily}");
+        builder.AppendLine($"candidates={string.Join(",", recognition.CandidateSuits)}");
         builder.AppendLine($"top_suit={recognition.NormalizedSuit ?? "n/a"}");
         builder.AppendLine($"confidence={recognition.Confidence:0.000}");
         foreach (var pair in recognition.Scores.OrderByDescending(x => x.Value))
@@ -823,5 +888,12 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         File.WriteAllText(path, builder.ToString());
+    }
+
+    private enum SuitColorFamily
+    {
+        Unknown = 0,
+        Black = 1,
+        Red = 2
     }
 }

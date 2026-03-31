@@ -27,7 +27,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
     private static readonly HashSet<string> ValidRanks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
     private static readonly HashSet<string> ValidSuits = ["h", "s", "d", "c"];
-    private static readonly Lazy<Dictionary<string, bool[,]>> SuitTemplates = new(BuildSuitTemplates);
+    private static readonly Lazy<Dictionary<string, bool[,]>> SuitTemplates = new(LoadSuitTemplates);
 
     private readonly IOcrEngine _ocrEngine;
 
@@ -737,66 +737,78 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return scores;
     }
 
-    private static Dictionary<string, bool[,]> BuildSuitTemplates()
+    private static Dictionary<string, bool[,]> LoadSuitTemplates()
     {
-        return new Dictionary<string, bool[,]>(StringComparer.OrdinalIgnoreCase)
+        var templateDirectory = GetSuitTemplateDirectory("normalized");
+        if (!Directory.Exists(templateDirectory))
         {
-            ["d"] = BuildTemplate(canvas =>
+            Directory.CreateDirectory(templateDirectory);
+        }
+
+        GenerateSuitTemplatesFromRawGlyphs(templateDirectory);
+
+        var templates = new Dictionary<string, bool[,]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var suit in ValidSuits)
+        {
+            var templatePath = Path.Combine(templateDirectory, $"{suit}.png");
+            if (!File.Exists(templatePath))
             {
-                var points = new[]
-                {
-                    new PointF(32, 7),
-                    new PointF(56, 32),
-                    new PointF(32, 57),
-                    new PointF(8, 32)
-                };
-                canvas.FillPolygon(Brushes.Black, points);
-            }),
-            ["h"] = BuildTemplate(canvas =>
-            {
-                canvas.FillEllipse(Brushes.Black, 10, 10, 22, 22);
-                canvas.FillEllipse(Brushes.Black, 32, 10, 22, 22);
-                canvas.FillPolygon(Brushes.Black, [new PointF(6, 25), new PointF(58, 25), new PointF(32, 57)]);
-            }),
-            ["s"] = BuildTemplate(canvas =>
-            {
-                canvas.FillEllipse(Brushes.Black, 10, 24, 22, 22);
-                canvas.FillEllipse(Brushes.Black, 32, 24, 22, 22);
-                canvas.FillPolygon(Brushes.Black, [new PointF(6, 39), new PointF(58, 39), new PointF(32, 8)]);
-                canvas.FillRectangle(Brushes.Black, 27, 43, 10, 16);
-                canvas.FillEllipse(Brushes.Black, 22, 54, 20, 7);
-            }),
-            ["c"] = BuildTemplate(canvas =>
-            {
-                canvas.FillEllipse(Brushes.Black, 21, 7, 22, 22);
-                canvas.FillEllipse(Brushes.Black, 8, 24, 22, 22);
-                canvas.FillEllipse(Brushes.Black, 34, 24, 22, 22);
-                canvas.FillRectangle(Brushes.Black, 27, 39, 10, 18);
-                canvas.FillEllipse(Brushes.Black, 22, 53, 20, 8);
-            })
-        };
+                continue;
+            }
+
+            using var bitmap = new Bitmap(templatePath);
+            templates[suit] = BitmapToBinaryMask(bitmap);
+        }
+
+        return templates;
     }
 
-    private static bool[,] BuildTemplate(Action<Graphics> draw)
+    private static void GenerateSuitTemplatesFromRawGlyphs(string templateDirectory)
     {
-        using var bitmap = new Bitmap(64, 64, PixelFormat.Format24bppRgb);
-        using (var graphics = Graphics.FromImage(bitmap))
+        var rawDirectory = GetSuitTemplateDirectory("raw");
+        if (!Directory.Exists(rawDirectory))
         {
-            graphics.SmoothingMode = SmoothingMode.HighQuality;
-            graphics.Clear(Color.White);
-            draw(graphics);
+            return;
         }
 
-        var mask = new bool[64, 64];
-        for (var y = 0; y < 64; y++)
+        var generationDebugDirectory = Path.Combine(
+            EnsureDebugDirectory(DateTime.UtcNow),
+            "suit_template_generation");
+        Directory.CreateDirectory(generationDebugDirectory);
+
+        foreach (var suit in ValidSuits)
         {
-            for (var x = 0; x < 64; x++)
+            var sourcePath = ResolveTemplateSourcePath(rawDirectory, suit);
+            if (sourcePath is null)
             {
-                mask[x, y] = bitmap.GetPixel(x, y).R < 128;
+                continue;
             }
-        }
 
-        return mask;
+            using var rawGlyph = new Bitmap(sourcePath);
+            SaveBitmap(rawGlyph, Path.Combine(generationDebugDirectory, $"{suit}_raw.png"));
+
+            using var preprocessed = PreprocessSuitImage(rawGlyph);
+            SaveBitmap(preprocessed, Path.Combine(generationDebugDirectory, $"{suit}_preprocessed.png"));
+
+            using var trimmed = TrimSuitWhitespace(preprocessed);
+            SaveBitmap(trimmed, Path.Combine(generationDebugDirectory, $"{suit}_trimmed.png"));
+
+            using var normalized = ResizeSuitForMatch(trimmed, 64, 64);
+            SaveBitmap(normalized, Path.Combine(generationDebugDirectory, $"{suit}_normalized.png"));
+            SaveBitmap(normalized, Path.Combine(templateDirectory, $"{suit}.png"));
+        }
+    }
+
+    private static string? ResolveTemplateSourcePath(string rawDirectory, string suit)
+    {
+        var candidates = new[] { ".png", ".bmp", ".jpg", ".jpeg", ".webp" }
+            .Select(extension => Path.Combine(rawDirectory, $"{suit}{extension}"));
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string GetSuitTemplateDirectory(string subdirectory)
+    {
+        return Path.Combine(AppContext.BaseDirectory, "Assets", "SuitTemplates", subdirectory);
     }
 
     private static void SaveSuitClassificationDebugArtifact(string debugDirectory, int cardIndex, SuitShapeRecognition recognition)

@@ -14,5 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\dealer_button_template.pgm" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\SuitTemplates\raw\*.*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\SuitTemplates\normalized\*.*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

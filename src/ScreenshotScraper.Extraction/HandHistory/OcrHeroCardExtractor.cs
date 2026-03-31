@@ -380,7 +380,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return RankRecognitionResult.Succeeded(normalized);
     }
 
-    private async Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, Bitmap rawSuitRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
+    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, Bitmap rawSuitRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
     {
         var debugDirectory = EnsureDebugDirectory(source.CapturedAtUtc == default ? DateTime.UtcNow : source.CapturedAtUtc);
         var mask = BuildSuitMask(preprocessedSuitRoi);
@@ -395,44 +395,18 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         var shapeClassification = RecognizeSuitByShape(normalizedMask, colorFamily);
         SaveSuitClassificationDebugArtifact(debugDirectory, cardIndex, colorFamily, shapeClassification);
 
-        if (shapeClassification.Confidence >= 0.62d && shapeClassification.NormalizedSuit is not null)
+        if (shapeClassification.Confidence >= 0.55d && shapeClassification.NormalizedSuit is not null)
         {
             Debug.WriteLine($"[HeroSuitShape] card={cardIndex}; color={colorFamily}; suit={shapeClassification.NormalizedSuit}; conf={shapeClassification.Confidence:0.000}");
-            return SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape");
+            return Task.FromResult(SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape"));
+        }
+        if (shapeClassification.NormalizedSuit is not null)
+        {
+            Debug.WriteLine($"[HeroSuitShape] card={cardIndex}; color={colorFamily}; low-confidence suit={shapeClassification.NormalizedSuit}; conf={shapeClassification.Confidence:0.000}");
+            return Task.FromResult(SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape_low_confidence"));
         }
 
-        using var stream = new MemoryStream();
-        preprocessedSuitRoi.Save(stream, ImageFormat.Png);
-        SaveHeroCardOcrInputArtifact(stream, source.CapturedAtUtc, cardIndex, "suit");
-
-        var roiImage = new CapturedImage
-        {
-            ImageBytes = stream.ToArray(),
-            Width = preprocessedSuitRoi.Width,
-            Height = preprocessedSuitRoi.Height,
-            CapturedAtUtc = source.CapturedAtUtc,
-            SourceDescription = source.SourceDescription,
-            WindowTitle = source.WindowTitle,
-            ProcessName = source.ProcessName
-        };
-
-        var ocr = await _ocrEngine.ReadAsync(roiImage, new OcrRequest("hero_suit", "suit_roi", PreferRecognitionOnly: true), cancellationToken).ConfigureAwait(false);
-        var normalized = NormalizeSuit(ocr.Text);
-        var ocrConfidence = ocr.Confidence ?? 0d;
-
-        Debug.WriteLine($"[HeroSuitOCR] card={cardIndex}; raw='{Sanitize(ocr.Text)}'; conf={ocr.Confidence?.ToString("0.000") ?? "n/a"}; normalized='{normalized ?? string.Empty}'; shape_conf={shapeClassification.Confidence:0.000}");
-
-        if (normalized is null && shapeClassification.NormalizedSuit is not null)
-        {
-            return SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape_low_confidence");
-        }
-
-        if (normalized is null)
-        {
-            return SuitRecognitionResult.Failed($"No valid suit from shape/OCR. shape_conf={shapeClassification.Confidence:0.000}; OCR raw='{Sanitize(ocr.Text)}' conf={ocr.Confidence?.ToString("0.000") ?? "n/a"}.");
-        }
-
-        return SuitRecognitionResult.Succeeded(normalized, Math.Max(shapeClassification.Confidence, ocrConfidence), "ocr_fallback");
+        return Task.FromResult(SuitRecognitionResult.Failed($"No valid suit from shape classifier. conf={shapeClassification.Confidence:0.000}."));
     }
 
     public static string? NormalizeRank(string? rawText, Bitmap processedBitmap, double? confidence)

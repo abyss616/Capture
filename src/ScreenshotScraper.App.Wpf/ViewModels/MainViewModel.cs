@@ -334,12 +334,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         using var heroCropStream = new MemoryStream(crop.ImageBytes);
         using var heroCropBitmap = new Bitmap(heroCropStream);
-        var cardBounds = OcrHeroCardExtractor.FindCardBounds(heroCropBitmap);
-
-        foreach (var cardRect in cardBounds.OrderBy(bounds => bounds.Left).Take(2))
+        var cardBounds = OcrHeroCardExtractor.FindDetectedCardBounds(heroCropBitmap);
+        var cardItems = OcrHeroCardExtractor.FindCardItems(heroCropBitmap);
+        var orderedCardBounds = cardBounds.OrderBy(bounds => bounds.Left).Take(2).ToList();
+        for (var cardIndex = 0; cardIndex < orderedCardBounds.Count; cardIndex++)
         {
+            var cardRect = orderedCardBounds[cardIndex];
             using var cardBitmap = heroCropBitmap.Clone(cardRect, heroCropBitmap.PixelFormat);
-            var rankRoi = OcrHeroCardExtractor.CropRankRegion(cardBitmap.Width, cardBitmap.Height);
+            var rankRoiItem = cardItems.First(item => item.CardIndex == cardIndex && item.Kind == OcrHeroCardExtractor.HeroCardItemKind.Rank);
+            var rankRoi = new Rectangle(
+                rankRoiItem.Bounds.Left - cardRect.Left,
+                rankRoiItem.Bounds.Top - cardRect.Top,
+                rankRoiItem.Bounds.Width,
+                rankRoiItem.Bounds.Height);
             using var rankBitmap = cardBitmap.Clone(rankRoi, cardBitmap.PixelFormat);
             using var preprocessedRankBitmap = OcrHeroCardExtractor.PreprocessRankImage(rankBitmap);
             BitmapImage item = BitmapImageFactory.Create(EncodeBitmap(preprocessedRankBitmap))??new BitmapImage();

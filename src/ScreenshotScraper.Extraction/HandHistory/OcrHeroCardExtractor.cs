@@ -15,6 +15,14 @@ namespace ScreenshotScraper.Extraction.HandHistory;
 /// </summary>
 public sealed class OcrHeroCardExtractor : ICardExtractor
 {
+    public enum HeroCardItemKind
+    {
+        Rank = 0,
+        Suit = 1
+    }
+
+    public readonly record struct HeroCardItem(int CardIndex, HeroCardItemKind Kind, Rectangle Bounds);
+
     private static readonly HashSet<string> ValidRanks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
 
     private readonly IOcrEngine _ocrEngine;
@@ -51,11 +59,12 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
             var debugDirectory = EnsureDebugDirectory(image.CapturedAtUtc);
             SaveBitmap(bitmap, Path.Combine(debugDirectory, "hero_crop.png"));
 
-            var cardBounds = FindCardBounds(bitmap);
+            var cardBounds = FindDetectedCardBounds(bitmap);
             if (cardBounds.Count != 2)
             {
                 return HeroRankExtractionResult.Failed($"Expected 2 card bounds, found {cardBounds.Count}.");
             }
+            var cardItems = BuildCardItems(cardBounds);
 
             var recognizedRanks = new List<string>(2);
             for (var i = 0; i < cardBounds.Count; i++)
@@ -64,9 +73,29 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                 using var cardCrop = bitmap.Clone(cardRect, bitmap.PixelFormat);
                 SaveBitmap(cardCrop, Path.Combine(debugDirectory, $"card_{i}_{(i == 0 ? "left" : "right")}.png"));
 
-                var rankRoiRect = CropRankRegion(cardCrop.Width, cardCrop.Height);
-                using var rankRoiRaw = cardCrop.Clone(rankRoiRect, cardCrop.PixelFormat);
+                var rankRoiRect = cardItems
+                    .First(item => item.CardIndex == i && item.Kind == HeroCardItemKind.Rank)
+                    .Bounds;
+
+                var rankInCardRect = new Rectangle(
+                    rankRoiRect.Left - cardRect.Left,
+                    rankRoiRect.Top - cardRect.Top,
+                    rankRoiRect.Width,
+                    rankRoiRect.Height);
+
+                var suitRoiRect = cardItems
+                    .First(item => item.CardIndex == i && item.Kind == HeroCardItemKind.Suit)
+                    .Bounds;
+                var suitInCardRect = new Rectangle(
+                    suitRoiRect.Left - cardRect.Left,
+                    suitRoiRect.Top - cardRect.Top,
+                    suitRoiRect.Width,
+                    suitRoiRect.Height);
+
+                using var rankRoiRaw = cardCrop.Clone(rankInCardRect, cardCrop.PixelFormat);
                 SaveBitmap(rankRoiRaw, Path.Combine(debugDirectory, $"rank_{i}_raw.png"));
+                using var suitRoiRaw = cardCrop.Clone(suitInCardRect, cardCrop.PixelFormat);
+                SaveBitmap(suitRoiRaw, Path.Combine(debugDirectory, $"suit_{i}_raw.png"));
 
                 using var preprocessed = PreprocessRankImage(rankRoiRaw);
                 SaveBitmap(preprocessed, Path.Combine(debugDirectory, $"rank_{i}_preprocessed.png"));
@@ -92,7 +121,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     /// Finds two likely card rectangles by scanning for bright card-face columns, then row extents.
     /// Prefers simple robust heuristics over expensive contour pipelines.
     /// </summary>
-    public static List<Rectangle> FindCardBounds(Bitmap heroCrop)
+    public static List<Rectangle> FindDetectedCardBounds(Bitmap heroCrop)
     {
         var bounds = new Rectangle(0, 0, heroCrop.Width, heroCrop.Height);
         var brightThreshold = 190;
@@ -204,6 +233,35 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     }
 
     /// <summary>
+    /// Builds semantic hero-card items from detected card rectangles.
+    /// Returns (left rank, left suit, right rank, right suit) when two cards are available.
+    /// </summary>
+    public static List<HeroCardItem> FindCardItems(Bitmap heroCrop)
+    {
+        var cards = FindDetectedCardBounds(heroCrop);
+        return BuildCardItems(cards);
+    }
+
+    private static List<HeroCardItem> BuildCardItems(IReadOnlyList<Rectangle> cards)
+    {
+        var items = new List<HeroCardItem>(cards.Count * 2);
+        for (var i = 0; i < cards.Count; i++)
+        {
+            var card = cards[i];
+            var rankLocal = CropRankRegion(card.Width, card.Height);
+            var suitLocal = CropSuitRegion(card.Width, card.Height);
+
+            items.Add(new HeroCardItem(i, HeroCardItemKind.Rank, Translate(rankLocal, card.Left, card.Top)));
+            items.Add(new HeroCardItem(i, HeroCardItemKind.Suit, Translate(suitLocal, card.Left, card.Top)));
+        }
+
+        return items.OrderBy(item => item.Bounds.Left).ThenBy(item => item.Kind).ToList();
+    }
+
+    [Obsolete("Use FindDetectedCardBounds for card-level bounds or FindCardItems for semantic rank/suit items.")]
+    public static List<Rectangle> FindCardBounds(Bitmap heroCrop) => FindDetectedCardBounds(heroCrop);
+
+    /// <summary>
     /// Crops rank glyph from top-left card corner.
     /// Recommended starting ratios:
     /// - x=6%, y=5%: skip rounded edge + border.
@@ -218,6 +276,22 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
         return Rectangle.Intersect(new Rectangle(x, y, w, h), new Rectangle(0, 0, cardWidth, cardHeight));
     }
+
+    /// <summary>
+    /// Crops suit glyph from the same corner stack under the rank.
+    /// </summary>
+    public static Rectangle CropSuitRegion(int cardWidth, int cardHeight)
+    {
+        var x = (int)Math.Round(cardWidth * 0.10);
+        var y = (int)Math.Round(cardHeight * 0.42);
+        var w = Math.Max(4, (int)Math.Round(cardWidth * 0.24));
+        var h = Math.Max(4, (int)Math.Round(cardHeight * 0.25));
+
+        return Rectangle.Intersect(new Rectangle(x, y, w, h), new Rectangle(0, 0, cardWidth, cardHeight));
+    }
+
+    private static Rectangle Translate(Rectangle rect, int offsetX, int offsetY)
+        => new(rect.Left + offsetX, rect.Top + offsetY, rect.Width, rect.Height);
 
     public static Bitmap PreprocessRankImage(Bitmap rankRoi)
     {

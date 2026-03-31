@@ -112,7 +112,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                     return HeroCardsExtractionResult.Failed($"Card {i} rank: {recognition.Diagnostics}");
                 }
 
-                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, suitRoiRaw, image, i, cancellationToken).ConfigureAwait(false);
+                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, image, i).ConfigureAwait(false);
                 if (!suitRecognition.Success)
                 {
                     return HeroCardsExtractionResult.Failed($"Card {i} suit: {suitRecognition.Diagnostics}");
@@ -380,33 +380,29 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return RankRecognitionResult.Succeeded(normalized);
     }
 
-    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, Bitmap rawSuitRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
+    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, CapturedImage source, int cardIndex)
     {
         var debugDirectory = EnsureDebugDirectory(source.CapturedAtUtc == default ? DateTime.UtcNow : source.CapturedAtUtc);
-        var mask = BuildSuitMask(preprocessedSuitRoi);
-        using var maskBitmap = MaskToBitmap(mask);
-        SaveBitmap(maskBitmap, Path.Combine(debugDirectory, $"suit_{cardIndex}_mask.png"));
+        using var trimmedSuit = TrimSuitWhitespace(preprocessedSuitRoi);
+        SaveBitmap(trimmedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_trimmed.png"));
+        using var resizedSuit = ResizeSuitForMatch(trimmedSuit, 64, 64);
+        SaveBitmap(resizedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_resized.png"));
 
-        var normalizedMask = NormalizeMask(mask, 64, 64, padding: 6);
-        using var normalizedBitmap = MaskToBitmap(normalizedMask);
-        SaveBitmap(normalizedBitmap, Path.Combine(debugDirectory, $"suit_{cardIndex}_normalized.png"));
+        var templateMatch = RecognizeSuitFromTemplates(resizedSuit);
+        SaveSuitClassificationDebugArtifact(debugDirectory, cardIndex, templateMatch);
 
-        var colorFamily = DetectSuitColorFamily(rawSuitRoi);
-        var shapeClassification = RecognizeSuitByShape(normalizedMask, colorFamily);
-        SaveSuitClassificationDebugArtifact(debugDirectory, cardIndex, colorFamily, shapeClassification);
-
-        if (shapeClassification.Confidence >= 0.55d && shapeClassification.NormalizedSuit is not null)
+        if (templateMatch.Confidence >= 0.55d && templateMatch.NormalizedSuit is not null)
         {
-            Debug.WriteLine($"[HeroSuitShape] card={cardIndex}; color={colorFamily}; suit={shapeClassification.NormalizedSuit}; conf={shapeClassification.Confidence:0.000}");
-            return Task.FromResult(SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape"));
+            Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; suit={templateMatch.NormalizedSuit}; conf={templateMatch.Confidence:0.000}");
+            return Task.FromResult(SuitRecognitionResult.Succeeded(templateMatch.NormalizedSuit, templateMatch.Confidence, "template"));
         }
-        if (shapeClassification.NormalizedSuit is not null)
+        if (templateMatch.NormalizedSuit is not null)
         {
-            Debug.WriteLine($"[HeroSuitShape] card={cardIndex}; color={colorFamily}; low-confidence suit={shapeClassification.NormalizedSuit}; conf={shapeClassification.Confidence:0.000}");
-            return Task.FromResult(SuitRecognitionResult.Succeeded(shapeClassification.NormalizedSuit, shapeClassification.Confidence, "shape_low_confidence"));
+            Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; low-confidence suit={templateMatch.NormalizedSuit}; conf={templateMatch.Confidence:0.000}");
+            return Task.FromResult(SuitRecognitionResult.Succeeded(templateMatch.NormalizedSuit, templateMatch.Confidence, "template_low_confidence"));
         }
 
-        return Task.FromResult(SuitRecognitionResult.Failed($"No valid suit from shape classifier. conf={shapeClassification.Confidence:0.000}."));
+        return Task.FromResult(SuitRecognitionResult.Failed($"No valid suit from template classifier. conf={templateMatch.Confidence:0.000}."));
     }
 
     public static string? NormalizeRank(string? rawText, Bitmap processedBitmap, double? confidence)
@@ -621,199 +617,12 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         public static SuitRecognitionResult Failed(string diagnostics) => new(false, null, diagnostics);
     }
 
-    private enum SuitColorFamily
-    {
-        Unknown = 0,
-        Red = 1,
-        Black = 2
-    }
-
     private sealed record SuitShapeRecognition(string? NormalizedSuit, double Confidence, Dictionary<string, double> Scores);
 
-    private static bool[,] BuildSuitMask(Bitmap suitRoi)
+    private static SuitShapeRecognition RecognizeSuitFromTemplates(Bitmap preprocessedSuit)
     {
-        var width = suitRoi.Width;
-        var height = suitRoi.Height;
-        var grayscale = new byte[width, height];
-        var histogram = new int[256];
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var px = suitRoi.GetPixel(x, y);
-                var lum = (byte)((px.R * 299 + px.G * 587 + px.B * 114) / 1000);
-                grayscale[x, y] = lum;
-                histogram[lum]++;
-            }
-        }
-
-        var threshold = ComputeOtsuThreshold(histogram, width * height);
-        var darkForeground = BuildBinary(grayscale, threshold, invert: false);
-        var lightForeground = BuildBinary(grayscale, threshold, invert: true);
-
-        var darkLargest = KeepLargestConnectedComponent(darkForeground);
-        var lightLargest = KeepLargestConnectedComponent(lightForeground);
-
-        return CountForeground(darkLargest) <= CountForeground(lightLargest) ? darkLargest : lightLargest;
-    }
-
-    private static bool[,] BuildBinary(byte[,] grayscale, int threshold, bool invert)
-    {
-        var width = grayscale.GetLength(0);
-        var height = grayscale.GetLength(1);
-        var mask = new bool[width, height];
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var isDark = grayscale[x, y] < threshold;
-                mask[x, y] = invert ? !isDark : isDark;
-            }
-        }
-
-        return mask;
-    }
-
-    private static bool[,] KeepLargestConnectedComponent(bool[,] mask)
-    {
-        var width = mask.GetLength(0);
-        var height = mask.GetLength(1);
-        var visited = new bool[width, height];
-        var best = new List<(int X, int Y)>();
-        var queue = new Queue<(int X, int Y)>();
-        var neighbors = new (int X, int Y)[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1) };
-
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                if (!mask[x, y] || visited[x, y])
-                {
-                    continue;
-                }
-
-                var component = new List<(int X, int Y)>();
-                queue.Enqueue((x, y));
-                visited[x, y] = true;
-                while (queue.Count > 0)
-                {
-                    var current = queue.Dequeue();
-                    component.Add(current);
-                    foreach (var (nx, ny) in neighbors)
-                    {
-                        var xx = current.X + nx;
-                        var yy = current.Y + ny;
-                        if (xx < 0 || yy < 0 || xx >= width || yy >= height || visited[xx, yy] || !mask[xx, yy])
-                        {
-                            continue;
-                        }
-
-                        visited[xx, yy] = true;
-                        queue.Enqueue((xx, yy));
-                    }
-                }
-
-                if (component.Count > best.Count)
-                {
-                    best = component;
-                }
-            }
-        }
-
-        var result = new bool[width, height];
-        foreach (var pixel in best)
-        {
-            result[pixel.X, pixel.Y] = true;
-        }
-
-        return result;
-    }
-
-    private static bool[,] NormalizeMask(bool[,] mask, int targetWidth, int targetHeight, int padding)
-    {
-        if (!TryGetMaskBounds(mask, out var bounds))
-        {
-            return new bool[targetWidth, targetHeight];
-        }
-
-        var normalized = new bool[targetWidth, targetHeight];
-        var innerWidth = targetWidth - (padding * 2);
-        var innerHeight = targetHeight - (padding * 2);
-        var scale = Math.Min(innerWidth / (double)bounds.Width, innerHeight / (double)bounds.Height);
-        var scaledWidth = Math.Max(1, (int)Math.Round(bounds.Width * scale));
-        var scaledHeight = Math.Max(1, (int)Math.Round(bounds.Height * scale));
-        var offsetX = padding + (innerWidth - scaledWidth) / 2;
-        var offsetY = padding + (innerHeight - scaledHeight) / 2;
-
-        for (var y = 0; y < scaledHeight; y++)
-        {
-            for (var x = 0; x < scaledWidth; x++)
-            {
-                var sourceX = bounds.Left + (int)Math.Min(bounds.Width - 1, Math.Round(x / scale));
-                var sourceY = bounds.Top + (int)Math.Min(bounds.Height - 1, Math.Round(y / scale));
-                normalized[offsetX + x, offsetY + y] = mask[sourceX, sourceY];
-            }
-        }
-
-        return normalized;
-    }
-
-    private static SuitColorFamily DetectSuitColorFamily(Bitmap rawSuitRoi)
-    {
-        var redLike = 0;
-        var darkLike = 0;
-        var considered = 0;
-        for (var y = 0; y < rawSuitRoi.Height; y++)
-        {
-            for (var x = 0; x < rawSuitRoi.Width; x++)
-            {
-                var px = rawSuitRoi.GetPixel(x, y);
-                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
-                if (lum > 245)
-                {
-                    continue;
-                }
-
-                considered++;
-                if (px.R > px.G + 20 && px.R > px.B + 20)
-                {
-                    redLike++;
-                }
-                else
-                {
-                    darkLike++;
-                }
-            }
-        }
-
-        if (considered < 8)
-        {
-            return SuitColorFamily.Unknown;
-        }
-
-        if (redLike / (double)considered >= 0.35d)
-        {
-            return SuitColorFamily.Red;
-        }
-
-        if (darkLike / (double)considered >= 0.45d)
-        {
-            return SuitColorFamily.Black;
-        }
-
-        return SuitColorFamily.Unknown;
-    }
-
-    private static SuitShapeRecognition RecognizeSuitByShape(bool[,] normalizedMask, SuitColorFamily colorFamily)
-    {
-        var candidateSuits = colorFamily switch
-        {
-            SuitColorFamily.Red => new[] { "h", "d" },
-            SuitColorFamily.Black => new[] { "s", "c" },
-            _ => new[] { "s", "h", "d", "c" }
-        };
-
-        var scores = ScoreSuitTemplates(normalizedMask, candidateSuits);
+        var mask = BitmapToBinaryMask(preprocessedSuit);
+        var scores = ScoreSuitTemplates(mask, ["s", "c", "h", "d"]);
         var ordered = scores.OrderByDescending(kvp => kvp.Value).ToList();
         if (ordered.Count == 0)
         {
@@ -825,6 +634,71 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         var margin = Math.Max(0d, top.Value - second);
         var confidence = Math.Clamp((top.Value * 0.75d) + (margin * 0.25d), 0d, 1d);
         return new SuitShapeRecognition(top.Key, confidence, scores);
+    }
+
+    private static Bitmap TrimSuitWhitespace(Bitmap suitRoi, byte backgroundThreshold = 245, int padding = 1)
+    {
+        var minX = suitRoi.Width;
+        var minY = suitRoi.Height;
+        var maxX = -1;
+        var maxY = -1;
+
+        for (var y = 0; y < suitRoi.Height; y++)
+        {
+            for (var x = 0; x < suitRoi.Width; x++)
+            {
+                var px = suitRoi.GetPixel(x, y);
+                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
+                if (lum >= backgroundThreshold)
+                {
+                    continue;
+                }
+
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (maxX < minX || maxY < minY)
+        {
+            return (Bitmap)suitRoi.Clone();
+        }
+
+        var left = Math.Max(0, minX - padding);
+        var top = Math.Max(0, minY - padding);
+        var right = Math.Min(suitRoi.Width - 1, maxX + padding);
+        var bottom = Math.Min(suitRoi.Height - 1, maxY + padding);
+        var crop = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+        return suitRoi.Clone(crop, suitRoi.PixelFormat);
+    }
+
+    private static Bitmap ResizeSuitForMatch(Bitmap suit, int width, int height)
+    {
+        var resized = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        using var graphics = Graphics.FromImage(resized);
+        graphics.Clear(Color.White);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        graphics.DrawImage(suit, 0, 0, width, height);
+        return resized;
+    }
+
+    private static bool[,] BitmapToBinaryMask(Bitmap bitmap, byte threshold = 200)
+    {
+        var mask = new bool[bitmap.Width, bitmap.Height];
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var px = bitmap.GetPixel(x, y);
+                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
+                mask[x, y] = lum < threshold;
+            }
+        }
+
+        return mask;
     }
 
     private static Dictionary<string, double> ScoreSuitTemplates(bool[,] normalizedMask, IEnumerable<string> candidateSuits)
@@ -925,119 +799,10 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return mask;
     }
 
-    private static Bitmap MaskToBitmap(bool[,] mask)
-    {
-        var width = mask.GetLength(0);
-        var height = mask.GetLength(1);
-        var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                bitmap.SetPixel(x, y, mask[x, y] ? Color.Black : Color.White);
-            }
-        }
-
-        return bitmap;
-    }
-
-    private static int CountForeground(bool[,] mask)
-    {
-        var count = 0;
-        for (var y = 0; y < mask.GetLength(1); y++)
-        {
-            for (var x = 0; x < mask.GetLength(0); x++)
-            {
-                if (mask[x, y])
-                {
-                    count++;
-                }
-            }
-        }
-
-        return count;
-    }
-
-    private static bool TryGetMaskBounds(bool[,] mask, out Rectangle bounds)
-    {
-        var minX = int.MaxValue;
-        var minY = int.MaxValue;
-        var maxX = -1;
-        var maxY = -1;
-
-        for (var y = 0; y < mask.GetLength(1); y++)
-        {
-            for (var x = 0; x < mask.GetLength(0); x++)
-            {
-                if (!mask[x, y])
-                {
-                    continue;
-                }
-
-                minX = Math.Min(minX, x);
-                minY = Math.Min(minY, y);
-                maxX = Math.Max(maxX, x);
-                maxY = Math.Max(maxY, y);
-            }
-        }
-
-        if (maxX < minX || maxY < minY)
-        {
-            bounds = Rectangle.Empty;
-            return false;
-        }
-
-        bounds = Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
-        return true;
-    }
-
-    private static int ComputeOtsuThreshold(int[] histogram, int total)
-    {
-        var sum = 0.0;
-        for (var i = 0; i < 256; i++)
-        {
-            sum += i * histogram[i];
-        }
-
-        var sumBackground = 0.0;
-        var backgroundWeight = 0;
-        var bestVariance = -1.0;
-        var threshold = 128;
-
-        for (var t = 0; t < 256; t++)
-        {
-            backgroundWeight += histogram[t];
-            if (backgroundWeight == 0)
-            {
-                continue;
-            }
-
-            var foregroundWeight = total - backgroundWeight;
-            if (foregroundWeight == 0)
-            {
-                break;
-            }
-
-            sumBackground += t * histogram[t];
-            var meanBackground = sumBackground / backgroundWeight;
-            var meanForeground = (sum - sumBackground) / foregroundWeight;
-            var betweenVariance = backgroundWeight * foregroundWeight * Math.Pow(meanBackground - meanForeground, 2);
-
-            if (betweenVariance > bestVariance)
-            {
-                bestVariance = betweenVariance;
-                threshold = t;
-            }
-        }
-
-        return threshold;
-    }
-
-    private static void SaveSuitClassificationDebugArtifact(string debugDirectory, int cardIndex, SuitColorFamily colorFamily, SuitShapeRecognition recognition)
+    private static void SaveSuitClassificationDebugArtifact(string debugDirectory, int cardIndex, SuitShapeRecognition recognition)
     {
         var path = Path.Combine(debugDirectory, $"suit_{cardIndex}_classification.txt");
         var builder = new StringBuilder();
-        builder.AppendLine($"color_family={colorFamily}");
         builder.AppendLine($"top_suit={recognition.NormalizedSuit ?? "n/a"}");
         builder.AppendLine($"confidence={recognition.Confidence:0.000}");
         foreach (var pair in recognition.Scores.OrderByDescending(x => x.Value))

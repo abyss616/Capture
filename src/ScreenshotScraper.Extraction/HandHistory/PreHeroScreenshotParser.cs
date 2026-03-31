@@ -48,6 +48,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var heroCardRegionImage = CropHeroCardRegion(image);
         //File.WriteAllBytes(@"C:\temp\hero.png", heroCardRegionImage.ImageBytes);
         var heroCards = await _cardExtractor.ExtractHeroCardsAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
+        var heroCardsText = heroCards?.ToString() ?? string.Empty;
         var heroSeat = DetectHeroSeat(basePlayers, heroCards);
         var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
         var seatLocalResult = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);
@@ -67,7 +68,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             StartDate = header.StartDate,
             Players = players,
             Round0Actions = actions.Round0Actions.ToList(),
-            Round1PocketCards = BuildPocketCards(players, heroCards),
+            Round1PocketCards = BuildPocketCards(players, heroCardsText),
             Round1ObservedActions = actions.Round1Actions.ToList(),
             GameCodeField = header.GameCodeField,
             HeroNameField = heroNameField,
@@ -157,7 +158,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             .ToList();
     }
 
-    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, string heroCards, TableDetectionResult tableDetection)
+    private static List<SnapshotPlayer> ApplyDealerAndHeroCards(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat, int? heroSeat, Cards? heroCards, TableDetectionResult tableDetection)
     {
         var playersBySeat = players.ToDictionary(player => player.Seat);
         var occupiedSeats = tableDetection.OccupiedSeats
@@ -212,7 +213,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                     Position = string.Empty,
                     IsHero = isHero,
                     AppearsFolded = extracted?.AppearsFolded ?? false,
-                    HasVisibleCards = isHero && !string.IsNullOrWhiteSpace(heroCards)
+                    HasVisibleCards = isHero && heroCards?.IsComplete == true
                 };
             })
             .ToList();
@@ -597,9 +598,9 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return $"score={attemptScore:0.000} below selected={selectedScore:0.000}";
     }
 
-    private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, string heroCards)
+    private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, Cards? heroCards)
     {
-        if (string.IsNullOrWhiteSpace(heroCards))
+        if (heroCards?.IsComplete != true)
         {
             return null;
         }

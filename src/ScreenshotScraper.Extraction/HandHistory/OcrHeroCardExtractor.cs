@@ -1,5 +1,6 @@
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
+using ScreenshotScraper.Core.Models.HandHistory;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -24,6 +25,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     public readonly record struct HeroCardItem(int CardIndex, HeroCardItemKind Kind, Rectangle Bounds);
 
     private static readonly HashSet<string> ValidRanks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
+    private static readonly HashSet<string> ValidSuits = ["h", "s", "d", "c"];
 
     private readonly IOcrEngine _ocrEngine;
 
@@ -32,23 +34,23 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         _ocrEngine = ocrEngine;
     }
 
-    public async Task<string> ExtractHeroCardsAsync(CapturedImage image, CancellationToken cancellationToken = default)
+    public async Task<Cards?> ExtractHeroCardsAsync(CapturedImage image, CancellationToken cancellationToken = default)
     {
         var extraction = await TryExtractFromImageAsync(image, cancellationToken).ConfigureAwait(false);
         if (extraction.Success)
         {
-            return extraction.Ranks;
+            return extraction.Cards;
         }
 
         Debug.WriteLine($"[HeroRankOCR] Rank-only extraction failed: {extraction.Diagnostics}");
-        return string.Empty;
+        return null;
     }
 
-    private async Task<HeroRankExtractionResult> TryExtractFromImageAsync(CapturedImage image, CancellationToken cancellationToken)
+    private async Task<HeroCardsExtractionResult> TryExtractFromImageAsync(CapturedImage image, CancellationToken cancellationToken)
     {
         if (image.ImageBytes.Length == 0)
         {
-            return HeroRankExtractionResult.Failed("Hero crop image is empty.");
+            return HeroCardsExtractionResult.Failed("Hero crop image is empty.");
         }
 
         try
@@ -62,11 +64,11 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
             var cardBounds = FindDetectedCardBounds(bitmap);
             if (cardBounds.Count != 2)
             {
-                return HeroRankExtractionResult.Failed($"Expected 2 card bounds, found {cardBounds.Count}.");
+                return HeroCardsExtractionResult.Failed($"Expected 2 card bounds, found {cardBounds.Count}.");
             }
             var cardItems = BuildCardItems(cardBounds);
 
-            var recognizedRanks = new List<string>(2);
+            var recognizedCards = new List<PlayingCard>(2);
             for (var i = 0; i < cardBounds.Count; i++)
             {
                 var cardRect = cardBounds[i];
@@ -99,21 +101,33 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
                 using var preprocessed = PreprocessRankImage(rankRoiRaw);
                 SaveBitmap(preprocessed, Path.Combine(debugDirectory, $"rank_{i}_preprocessed.png"));
+                using var preprocessedSuit = PreprocessSuitImage(suitRoiRaw);
+                SaveBitmap(preprocessedSuit, Path.Combine(debugDirectory, $"suit_{i}_preprocessed.png"));
 
                 var recognition = await RecognizeRankAsync(preprocessed, image, i, cancellationToken).ConfigureAwait(false);
                 if (!recognition.Success)
                 {
-                    return HeroRankExtractionResult.Failed($"Card {i}: {recognition.Diagnostics}");
+                    return HeroCardsExtractionResult.Failed($"Card {i} rank: {recognition.Diagnostics}");
                 }
 
-                recognizedRanks.Add(recognition.NormalizedRank!);
+                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, image, i, cancellationToken).ConfigureAwait(false);
+                if (!suitRecognition.Success)
+                {
+                    return HeroCardsExtractionResult.Failed($"Card {i} suit: {suitRecognition.Diagnostics}");
+                }
+
+                recognizedCards.Add(new PlayingCard
+                {
+                    Rank = recognition.NormalizedRank!,
+                    Suit = suitRecognition.NormalizedSuit!
+                });
             }
 
-            return HeroRankExtractionResult.Succeeded(string.Join(' ', recognizedRanks));
+            return HeroCardsExtractionResult.Succeeded(new Cards { Items = recognizedCards });
         }
         catch (Exception ex)
         {
-            return HeroRankExtractionResult.Failed($"Unhandled exception: {ex.Message}");
+            return HeroCardsExtractionResult.Failed($"Unhandled exception: {ex.Message}");
         }
     }
 
@@ -332,6 +346,8 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return grayscale;
     }
 
+    public static Bitmap PreprocessSuitImage(Bitmap suitRoi) => PreprocessRankImage(suitRoi);
+
     private async Task<RankRecognitionResult> RecognizeRankAsync(Bitmap preprocessedRankRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
     {
         using var stream = new MemoryStream();
@@ -360,6 +376,36 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         return RankRecognitionResult.Succeeded(normalized);
+    }
+
+    private async Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
+    {
+        using var stream = new MemoryStream();
+        preprocessedSuitRoi.Save(stream, ImageFormat.Png);
+        SaveHeroCardOcrInputArtifact(stream, source.CapturedAtUtc, cardIndex, "suit");
+
+        var roiImage = new CapturedImage
+        {
+            ImageBytes = stream.ToArray(),
+            Width = preprocessedSuitRoi.Width,
+            Height = preprocessedSuitRoi.Height,
+            CapturedAtUtc = source.CapturedAtUtc,
+            SourceDescription = source.SourceDescription,
+            WindowTitle = source.WindowTitle,
+            ProcessName = source.ProcessName
+        };
+
+        var ocr = await _ocrEngine.ReadAsync(roiImage, new OcrRequest("hero_suit", "suit_roi", PreferRecognitionOnly: true), cancellationToken).ConfigureAwait(false);
+        var normalized = NormalizeSuit(ocr.Text);
+
+        Debug.WriteLine($"[HeroSuitOCR] card={cardIndex}; raw='{Sanitize(ocr.Text)}'; conf={ocr.Confidence?.ToString("0.000") ?? "n/a"}; normalized='{normalized ?? string.Empty}'");
+
+        if (normalized is null)
+        {
+            return SuitRecognitionResult.Failed($"No valid suit from OCR raw='{Sanitize(ocr.Text)}' conf={ocr.Confidence?.ToString("0.000") ?? "n/a"}.");
+        }
+
+        return SuitRecognitionResult.Succeeded(normalized);
     }
 
     public static string? NormalizeRank(string? rawText, Bitmap processedBitmap, double? confidence)
@@ -408,6 +454,31 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         return ValidRanks.Contains(candidate) ? candidate : null;
+    }
+
+    public static string? NormalizeSuit(string? rawText)
+    {
+        var sanitized = Sanitize(rawText).ToLowerInvariant();
+        if (sanitized.Length == 0)
+        {
+            return null;
+        }
+
+        var candidate = sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? sanitized;
+        var mapped = candidate switch
+        {
+            "♠" or "s" or "spade" or "spades" => "s",
+            "♥" or "h" or "heart" or "hearts" => "h",
+            "♦" or "d" or "diamond" or "diamonds" => "d",
+            "♣" or "c" or "club" or "clubs" => "c",
+            _ when candidate.Contains('s') => "s",
+            _ when candidate.Contains('h') => "h",
+            _ when candidate.Contains('d') => "d",
+            _ when candidate.Contains('c') => "c",
+            _ => null
+        };
+
+        return mapped is not null && ValidSuits.Contains(mapped) ? mapped : null;
     }
 
     private static bool LooksLikeQ(Bitmap processedBitmap)
@@ -506,10 +577,10 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return dir;
     }
 
-    private static void SaveHeroCardOcrInputArtifact(MemoryStream stream, DateTime capturedAtUtc, int cardIndex)
+    private static void SaveHeroCardOcrInputArtifact(MemoryStream stream, DateTime capturedAtUtc, int cardIndex, string kind = "rank")
     {
         var debugDirectory = EnsureDebugDirectory(capturedAtUtc == default ? DateTime.UtcNow : capturedAtUtc);
-        var artifactPath = Path.Combine(debugDirectory, $"rank_{cardIndex}_preprocessed.png");
+        var artifactPath = Path.Combine(debugDirectory, $"{kind}_{cardIndex}_preprocessed.png");
         if (File.Exists(artifactPath))
         {
             File.Delete(artifactPath);
@@ -530,15 +601,21 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
             : value.Replace("\r", " ").Replace("\n", " ").Trim();
     }
 
-    private sealed record HeroRankExtractionResult(bool Success, string Ranks, string Diagnostics)
+    private sealed record HeroCardsExtractionResult(bool Success, Cards? Cards, string Diagnostics)
     {
-        public static HeroRankExtractionResult Succeeded(string ranks) => new(true, ranks, string.Empty);
-        public static HeroRankExtractionResult Failed(string diagnostics) => new(false, string.Empty, diagnostics);
+        public static HeroCardsExtractionResult Succeeded(Cards cards) => new(true, cards, string.Empty);
+        public static HeroCardsExtractionResult Failed(string diagnostics) => new(false, null, diagnostics);
     }
 
     private sealed record RankRecognitionResult(bool Success, string? NormalizedRank, string Diagnostics)
     {
         public static RankRecognitionResult Succeeded(string rank) => new(true, rank, string.Empty);
         public static RankRecognitionResult Failed(string diagnostics) => new(false, null, diagnostics);
+    }
+
+    private sealed record SuitRecognitionResult(bool Success, string? NormalizedSuit, string Diagnostics)
+    {
+        public static SuitRecognitionResult Succeeded(string suit) => new(true, suit, string.Empty);
+        public static SuitRecognitionResult Failed(string diagnostics) => new(false, null, diagnostics);
     }
 }

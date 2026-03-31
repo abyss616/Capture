@@ -336,6 +336,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     {
         using var stream = new MemoryStream();
         preprocessedRankRoi.Save(stream, ImageFormat.Png);
+        SaveHeroCardOcrInputArtifact(stream, source.CapturedAtUtc, cardIndex);
 
         var roiImage = new CapturedImage
         {
@@ -500,9 +501,21 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
     private static string EnsureDebugDirectory(DateTime capturedAtUtc)
     {
-        var dir = Path.Combine(AppContext.BaseDirectory, "debug", "hero_rank_ocr", capturedAtUtc.ToString("yyyyMMdd_HHmmss_fff"));
+        var dir = Path.Combine("debug", "output", capturedAtUtc.ToString("yyyyMMdd_HHmmssfff"));
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    private static void SaveHeroCardOcrInputArtifact(MemoryStream stream, DateTime capturedAtUtc, int cardIndex)
+    {
+        var debugDirectory = EnsureDebugDirectory(capturedAtUtc == default ? DateTime.UtcNow : capturedAtUtc);
+        var artifactPath = Path.Combine(debugDirectory, $"rank_{cardIndex}_preprocessed.png");
+        if (File.Exists(artifactPath))
+        {
+            File.Delete(artifactPath);
+        }
+
+        File.WriteAllBytes(artifactPath, stream.ToArray());
     }
 
     private static void SaveBitmap(Bitmap bitmap, string path)

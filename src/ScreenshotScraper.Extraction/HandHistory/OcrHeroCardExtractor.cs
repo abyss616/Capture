@@ -296,10 +296,10 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     /// </summary>
     public static Rectangle CropSuitRegion(int cardWidth, int cardHeight)
     {
-        var x = (int)Math.Round(cardWidth * 0.10);
-        var y = (int)Math.Round(cardHeight * 0.42);
-        var w = Math.Max(4, (int)Math.Round(cardWidth * 0.24));
-        var h = Math.Max(4, (int)Math.Round(cardHeight * 0.25));
+        var x = (int)Math.Round(cardWidth * 0.06);
+        var y = (int)Math.Round(cardHeight * 0.50);
+        var w = Math.Max(4, (int)Math.Round(cardWidth * 0.32));
+        var h = Math.Max(4, (int)Math.Round(cardHeight * 0.40));
 
         return Rectangle.Intersect(new Rectangle(x, y, w, h), new Rectangle(0, 0, cardWidth, cardHeight));
     }
@@ -377,6 +377,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
         return RankRecognitionResult.Succeeded(normalized);
     }
+
 
     private async Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, CapturedImage source, int cardIndex, CancellationToken cancellationToken)
     {

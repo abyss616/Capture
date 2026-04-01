@@ -27,7 +27,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
     private static readonly HashSet<string> ValidRanks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
     private static readonly HashSet<string> ValidSuits = ["h", "s", "d", "c"];
-    private static readonly Lazy<Dictionary<string, bool[,]>> SuitTemplates = new(LoadSuitTemplates);
+    private static readonly Lazy<Dictionary<string, Bitmap>> SuitTemplates = new(LoadSuitTemplates);
 
     private readonly IOcrEngine _ocrEngine;
 
@@ -410,15 +410,10 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; color_family={templateMatch.ColorFamily}; candidates={string.Join(",", templateMatch.CandidateSuits)}");
         Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; scores={string.Join(", ", templateMatch.Scores.OrderByDescending(x => x.Value).Select(x => $"{x.Key}:{x.Value:0.000}"))}");
 
-        if (templateMatch.Confidence >= 0.55d && templateMatch.NormalizedSuit is not null)
+        if (templateMatch.NormalizedSuit is not null)
         {
             Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; suit={templateMatch.NormalizedSuit}; conf={templateMatch.Confidence:0.000}");
             return Task.FromResult(SuitRecognitionResult.Succeeded(templateMatch.NormalizedSuit, templateMatch.Confidence, "template"));
-        }
-        if (templateMatch.NormalizedSuit is not null)
-        {
-            Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; low-confidence suit={templateMatch.NormalizedSuit}; conf={templateMatch.Confidence:0.000}");
-            return Task.FromResult(SuitRecognitionResult.Succeeded(templateMatch.NormalizedSuit, templateMatch.Confidence, "template_low_confidence"));
         }
 
         return Task.FromResult(SuitRecognitionResult.Failed($"No valid suit from template classifier. conf={templateMatch.Confidence:0.000}."));
@@ -470,31 +465,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         return ValidRanks.Contains(candidate) ? candidate : null;
-    }
-
-    public static string? NormalizeSuit(string? rawText)
-    {
-        var sanitized = Sanitize(rawText).ToLowerInvariant();
-        if (sanitized.Length == 0)
-        {
-            return null;
-        }
-
-        var candidate = sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? sanitized;
-        var mapped = candidate switch
-        {
-            "♠" or "s" or "spade" or "spades" => "s",
-            "♥" or "h" or "heart" or "hearts" => "h",
-            "♦" or "d" or "diamond" or "diamonds" => "d",
-            "♣" or "c" or "club" or "clubs" => "c",
-            _ when candidate.Contains('s') => "s",
-            _ when candidate.Contains('h') => "h",
-            _ when candidate.Contains('d') => "d",
-            _ when candidate.Contains('c') => "c",
-            _ => null
-        };
-
-        return mapped is not null && ValidSuits.Contains(mapped) ? mapped : null;
     }
 
     private static bool LooksLikeQ(Bitmap processedBitmap)
@@ -640,14 +610,12 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
     private static SuitShapeRecognition RecognizeSuitFromTemplates(Bitmap preprocessedSuit, SuitColorFamily colorFamily)
     {
-        var mask = BitmapToBinaryMask(preprocessedSuit);
         var candidates = colorFamily switch
         {
             SuitColorFamily.Black => new[] { "s", "c" },
-            SuitColorFamily.Red => new[] { "h", "d" },
-            _ => new[] { "s", "c", "h", "d" }
+            _ => new[] { "h", "d" }
         };
-        var scores = ScoreSuitTemplates(mask, candidates);
+        var scores = ScoreSuitTemplates(preprocessedSuit, candidates);
         var ordered = scores.OrderByDescending(kvp => kvp.Value).ToList();
         if (ordered.Count == 0)
         {
@@ -655,10 +623,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         }
 
         var top = ordered[0];
-        var second = ordered.Count > 1 ? ordered[1].Value : 0d;
-        var margin = Math.Max(0d, top.Value - second);
-        var confidence = Math.Clamp((top.Value * 0.75d) + (margin * 0.25d), 0d, 1d);
-        return new SuitShapeRecognition(top.Key, confidence, scores, colorFamily.ToString().ToLowerInvariant(), candidates);
+        return new SuitShapeRecognition(top.Key, top.Value, scores, colorFamily.ToString().ToLowerInvariant(), candidates);
     }
 
     private static Bitmap TrimSuitWhitespace(Bitmap suitRoi, byte backgroundThreshold = 245, int padding = 1)
@@ -741,30 +706,14 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
         if (foregroundPixels == 0)
         {
-            return SuitColorFamily.Unknown;
+            return SuitColorFamily.Black;
         }
 
         var redRatio = redDominantPixels / (double)foregroundPixels;
         return redRatio >= 0.12d ? SuitColorFamily.Red : SuitColorFamily.Black;
     }
 
-    private static bool[,] BitmapToBinaryMask(Bitmap bitmap, byte threshold = 200)
-    {
-        var mask = new bool[bitmap.Width, bitmap.Height];
-        for (var y = 0; y < bitmap.Height; y++)
-        {
-            for (var x = 0; x < bitmap.Width; x++)
-            {
-                var px = bitmap.GetPixel(x, y);
-                var lum = (px.R * 299 + px.G * 587 + px.B * 114) / 1000;
-                mask[x, y] = lum < threshold;
-            }
-        }
-
-        return mask;
-    }
-
-    private static Dictionary<string, double> ScoreSuitTemplates(bool[,] normalizedMask, IEnumerable<string> candidateSuits)
+    private static Dictionary<string, double> ScoreSuitTemplates(Bitmap normalizedSuit, IEnumerable<string> candidateSuits)
     {
         var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         foreach (var suit in candidateSuits)
@@ -774,33 +723,26 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                 continue;
             }
 
-            var intersection = 0;
-            var union = 0;
-            for (var y = 0; y < normalizedMask.GetLength(1); y++)
+            var totalDifference = 0d;
+            var pixels = normalizedSuit.Width * normalizedSuit.Height;
+            for (var y = 0; y < normalizedSuit.Height; y++)
             {
-                for (var x = 0; x < normalizedMask.GetLength(0); x++)
+                for (var x = 0; x < normalizedSuit.Width; x++)
                 {
-                    var m = normalizedMask[x, y];
-                    var t = template[x, y];
-                    if (m && t)
-                    {
-                        intersection++;
-                    }
-
-                    if (m || t)
-                    {
-                        union++;
-                    }
+                    var input = normalizedSuit.GetPixel(x, y).R;
+                    var target = template.GetPixel(x, y).R;
+                    totalDifference += Math.Abs(input - target);
                 }
             }
 
-            scores[suit] = union == 0 ? 0d : intersection / (double)union;
+            var averageDifference = totalDifference / pixels;
+            scores[suit] = Math.Clamp(1d - (averageDifference / 255d), 0d, 1d);
         }
 
         return scores;
     }
 
-    private static Dictionary<string, bool[,]> LoadSuitTemplates()
+    private static Dictionary<string, Bitmap> LoadSuitTemplates()
     {
         var templateDirectory = GetSuitTemplateDirectory("normalized");
         if (!Directory.Exists(templateDirectory))
@@ -810,7 +752,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
         GenerateSuitTemplatesFromRawGlyphs(templateDirectory);
 
-        var templates = new Dictionary<string, bool[,]>(StringComparer.OrdinalIgnoreCase);
+        var templates = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
         foreach (var suit in ValidSuits)
         {
             var templatePath = Path.Combine(templateDirectory, $"{suit}.png");
@@ -819,8 +761,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                 continue;
             }
 
-            using var bitmap = new Bitmap(templatePath);
-            templates[suit] = BitmapToBinaryMask(bitmap);
+            templates[suit] = new Bitmap(templatePath);
         }
 
         return templates;
@@ -892,7 +833,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
     private enum SuitColorFamily
     {
-        Unknown = 0,
         Black = 1,
         Red = 2
     }

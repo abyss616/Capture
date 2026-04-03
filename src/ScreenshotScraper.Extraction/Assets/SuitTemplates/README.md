@@ -9,4 +9,4 @@
 3. The extractor regenerates `normalized/*.png` automatically and writes debug artifacts under:
    - `%TEMP%/ScreenshotScraper/debug/<timestamp>/suit_template_generation/`
 
-Generated debug artifacts include `*_raw.png`, `*_preprocessed.png`, `*_trimmed.png`, and `*_normalized.png` per suit.
+Generated debug artifacts include `*_raw.png`, `*_trimmed.png`, and `*_normalized.png` per suit.

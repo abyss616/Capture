@@ -1,3 +1,4 @@
+using System.Globalization;
 using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
@@ -9,7 +10,8 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var round0Actions = new List<SnapshotAction>();
         var round1Actions = new List<SnapshotAction>();
 
-        var smallBlind = players.FirstOrDefault(player => player.Position == "SB" && !string.IsNullOrWhiteSpace(player.Bet));
+        var (smallBlind, bigBlind) = ResolveBlindPlayersByBetSize(players);
+
         if (smallBlind is not null)
         {
             round0Actions.Add(new SnapshotAction
@@ -21,7 +23,6 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             });
         }
 
-        var bigBlind = players.FirstOrDefault(player => player.Position == "BB" && !string.IsNullOrWhiteSpace(player.Bet));
         if (bigBlind is not null)
         {
             round0Actions.Add(new SnapshotAction
@@ -62,5 +63,33 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         }
 
         return (round0Actions, round1Actions);
+    }
+
+    private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)
+    {
+        SnapshotPlayer? smallBlind = null;
+        SnapshotPlayer? bigBlind = null;
+
+        foreach (var player in players)
+        {
+            var parsedBet = SeatLocalTextParser.ParseNumber(player.Bet);
+            if (!decimal.TryParse(parsedBet, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var betSize))
+            {
+                continue;
+            }
+
+            if (betSize == 1m && smallBlind is null)
+            {
+                smallBlind = player;
+                continue;
+            }
+
+            if (betSize == 2m && bigBlind is null)
+            {
+                bigBlind = player;
+            }
+        }
+
+        return (smallBlind, bigBlind);
     }
 }

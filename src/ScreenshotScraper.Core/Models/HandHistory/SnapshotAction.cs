@@ -6,7 +6,7 @@ public sealed class SnapshotAction
 
     public string Player { get; init; } = string.Empty;
 
-    public int Type { get; init; }
+    public SnapshotActionType Type { get; init; }
 
     public string Sum { get; init; } = string.Empty;
 }

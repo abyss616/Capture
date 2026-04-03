@@ -50,12 +50,12 @@ public sealed class XmlBuilder : IXmlBuilder
             new XElement(
                 "round",
                 new XAttribute("no", "0"),
-                snapshot.Round0Actions.Select(BuildActionElement)),
+                snapshot.Round0Actions.Select(action => BuildActionElement(action, 0))),
             new XElement(
                 "round",
                 new XAttribute("no", "1"),
                 snapshot.Round1PocketCards.Select(BuildPocketCardElement),
-                snapshot.Round1ObservedActions.Select(BuildActionElement)));
+                snapshot.Round1ObservedActions.Select(action => BuildActionElement(action, 1))));
     }
 
     private static IReadOnlyList<SnapshotPlayer> OrderPlayersForXml(PartialHandHistorySnapshot snapshot)
@@ -105,14 +105,23 @@ public sealed class XmlBuilder : IXmlBuilder
             new XAttribute("rakeamount", "€0.00"));
     }
 
-    private static XElement BuildActionElement(SnapshotAction action)
+    private static XElement BuildActionElement(SnapshotAction action, int roundNo)
     {
-        return new XElement(
+        var element = new XElement(
             "action",
             new XAttribute("no", action.No),
             new XAttribute("player", action.Player),
-            new XAttribute("type", action.Type),
+            new XAttribute("type", (int)action.Type),
             new XAttribute("sum", action.Sum));
+
+        if (roundNo == 0 && action.Type is SnapshotActionType.SmallBlindPost or SnapshotActionType.BigBlindPost)
+        {
+            element.Add(
+                new XAttribute("discard", "1"),
+                new XAttribute("dealt", "1"));
+        }
+
+        return element;
     }
 
     private static XElement BuildPocketCardElement(SnapshotPocketCards pocketCards)

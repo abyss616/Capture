@@ -103,8 +103,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
                 using var preprocessed = PreprocessRankImage(rankRoiRaw);
                 SaveBitmap(preprocessed, Path.Combine(debugDirectory, $"rank_{i}_preprocessed.png"));
-                using var preprocessedSuit = PreprocessSuitImage(suitRoiRaw);
-                SaveBitmap(preprocessedSuit, Path.Combine(debugDirectory, $"suit_{i}_preprocessed.png"));
 
                 var recognition = await RecognizeRankAsync(preprocessed, image, i, cancellationToken).ConfigureAwait(false);
                 if (!recognition.Success)
@@ -400,8 +398,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     {
         var debugDirectory = EnsureDebugDirectory(source.CapturedAtUtc == default ? DateTime.UtcNow : source.CapturedAtUtc);
         var colorFamily = DetectSuitColorFamily(rawSuitRoi);
-        using var suitMask = BuildSuitForegroundMask(rawSuitRoi);
-        SaveBitmap(suitMask, Path.Combine(debugDirectory, $"suit_{cardIndex}_mask.png"));
         using var componentCrop = ExtractSuitComponentCrop(rawSuitRoi, out var selectedBounds, out var usedFallback);
         SaveBitmap(componentCrop, Path.Combine(debugDirectory, $"suit_{cardIndex}_component.png"));
         using var resizedSuit = ResizeSuitForMatch(componentCrop, 64, 64);
@@ -665,21 +661,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         var bottom = Math.Min(suitRoi.Height - 1, maxY + padding);
         var crop = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
         return suitRoi.Clone(crop, suitRoi.PixelFormat);
-    }
-
-    private static Bitmap BuildSuitForegroundMask(Bitmap suitRoi)
-    {
-        var mask = new Bitmap(suitRoi.Width, suitRoi.Height, PixelFormat.Format24bppRgb);
-        for (var y = 0; y < suitRoi.Height; y++)
-        {
-            for (var x = 0; x < suitRoi.Width; x++)
-            {
-                var foreground = IsSuitForeground(suitRoi.GetPixel(x, y));
-                mask.SetPixel(x, y, foreground ? Color.Black : Color.White);
-            }
-        }
-
-        return mask;
     }
 
     private static bool IsSuitForeground(Color c)
@@ -1007,7 +988,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
             SaveBitmap(rawGlyph, Path.Combine(generationDebugDirectory, $"{suit}_raw.png"));
 
             using var preprocessed = PreprocessSuitImage(rawGlyph);
-            SaveBitmap(preprocessed, Path.Combine(generationDebugDirectory, $"{suit}_preprocessed.png"));
 
             using var trimmed = TrimSuitWhitespace(preprocessed);
             SaveBitmap(trimmed, Path.Combine(generationDebugDirectory, $"{suit}_trimmed.png"));

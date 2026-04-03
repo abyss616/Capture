@@ -285,8 +285,8 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     /// </summary>
     public static Rectangle CropRankRegion(int cardWidth, int cardHeight)
     {
-        var x = (int)Math.Round(cardWidth * 0.06);
-        var y = (int)Math.Round(cardHeight * 0.05);
+        var x = (int)Math.Round(cardWidth * 0.05);
+        var y = (int)Math.Round(cardHeight * 0.1);
         var w = Math.Max(4, (int)Math.Round(cardWidth * 0.40));
         var h = Math.Max(4, (int)Math.Round(cardHeight * 0.44));
 

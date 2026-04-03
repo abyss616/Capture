@@ -1,3 +1,4 @@
+using System.Globalization;
 using ScreenshotScraper.Core.Models.HandHistory;
 
 namespace ScreenshotScraper.Extraction.HandHistory;
@@ -9,15 +10,27 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var round0Actions = new List<SnapshotAction>();
         var round1Actions = new List<SnapshotAction>();
 
-        var numberedRound0 = 1;
-        foreach (var blind in players.Where(player => player.Position is "SB" or "BB" && !string.IsNullOrWhiteSpace(player.Bet)))
+        var (smallBlind, bigBlind) = ResolveBlindPlayersByBetSize(players);
+
+        if (smallBlind is not null)
         {
             round0Actions.Add(new SnapshotAction
             {
-                No = numberedRound0++,
-                Player = blind.Name,
-                Type = blind.Position == "SB" ? 1 : 2,
-                Sum = blind.Bet ?? string.Empty
+                No = 1,
+                Player = smallBlind.Name,
+                Type = SnapshotActionType.SmallBlindPost,
+                Sum = smallBlind.Bet ?? string.Empty
+            });
+        }
+
+        if (bigBlind is not null)
+        {
+            round0Actions.Add(new SnapshotAction
+            {
+                No = 2,
+                Player = bigBlind.Name,
+                Type = SnapshotActionType.BigBlindPost,
+                Sum = bigBlind.Bet ?? string.Empty
             });
         }
 
@@ -50,5 +63,33 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         }
 
         return (round0Actions, round1Actions);
+    }
+
+    private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)
+    {
+        SnapshotPlayer? smallBlind = null;
+        SnapshotPlayer? bigBlind = null;
+
+        foreach (var player in players)
+        {
+            var parsedBet = SeatLocalTextParser.ParseNumber(player.Bet);
+            if (!decimal.TryParse(parsedBet, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var betSize))
+            {
+                continue;
+            }
+
+            if (betSize == 1m && smallBlind is null)
+            {
+                smallBlind = player;
+                continue;
+            }
+
+            if (betSize == 2m && bigBlind is null)
+            {
+                bigBlind = player;
+            }
+        }
+
+        return (smallBlind, bigBlind);
     }
 }

@@ -288,7 +288,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         var x = (int)Math.Round(cardWidth * 0.05);
         var y = (int)Math.Round(cardHeight * 0.1);
         var w = Math.Max(4, (int)Math.Round(cardWidth * 0.40));
-        var h = Math.Max(4, (int)Math.Round(cardHeight * 0.44));
+        var h = Math.Max(4, (int)Math.Round(cardHeight * 0.5));
 
         return Rectangle.Intersect(new Rectangle(x, y, w, h), new Rectangle(0, 0, cardWidth, cardHeight));
     }

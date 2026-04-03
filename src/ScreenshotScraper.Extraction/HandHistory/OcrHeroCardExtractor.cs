@@ -723,7 +723,8 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         else
         {
             usedFallback = false;
-            selectedBounds = InflateWithin(best.Bounds, suitRoi.Width, suitRoi.Height, Math.Max(1, Math.Min(3, Math.Min(suitRoi.Width, suitRoi.Height) / 10)));
+            var bestValue = best.Value;
+            selectedBounds = InflateWithin(bestValue.Bounds, suitRoi.Width, suitRoi.Height, Math.Max(1, Math.Min(3, Math.Min(suitRoi.Width, suitRoi.Height) / 10)));
         }
 
         return suitRoi.Clone(selectedBounds, suitRoi.PixelFormat);
@@ -831,7 +832,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
 
             var centerX = component.Bounds.Left + (component.Bounds.Width / 2.0);
             var centerY = component.Bounds.Top + (component.Bounds.Height / 2.0);
-            var score = component.Area;
+            double score = component.Area;
             score += centerY * 1.6;
             score += component.Bounds.Top * 0.8;
             if (centerX <= lowerLeftRegionWidth && centerY >= lowerHalfY)

@@ -78,13 +78,13 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 continue;
             }
 
-            if (betSize == 1m && smallBlind is null)
+            if (betSize == 0.5m && smallBlind is null)
             {
                 smallBlind = player;
                 continue;
             }
 
-            if (betSize == 2m && bigBlind is null)
+            if (betSize == 1m && bigBlind is null)
             {
                 bigBlind = player;
             }

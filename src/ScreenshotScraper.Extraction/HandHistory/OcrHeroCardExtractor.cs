@@ -112,7 +112,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
                     return HeroCardsExtractionResult.Failed($"Card {i} rank: {recognition.Diagnostics}");
                 }
 
-                var suitRecognition = await RecognizeSuitAsync(preprocessedSuit, suitRoiRaw, image, i).ConfigureAwait(false);
+                var suitRecognition = await RecognizeSuitAsync(suitRoiRaw, image, i).ConfigureAwait(false);
                 if (!suitRecognition.Success)
                 {
                     return HeroCardsExtractionResult.Failed($"Card {i} suit: {suitRecognition.Diagnostics}");
@@ -396,14 +396,17 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return RankRecognitionResult.Succeeded(normalized);
     }
 
-    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap preprocessedSuitRoi, Bitmap rawSuitRoi, CapturedImage source, int cardIndex)
+    private Task<SuitRecognitionResult> RecognizeSuitAsync(Bitmap rawSuitRoi, CapturedImage source, int cardIndex)
     {
         var debugDirectory = EnsureDebugDirectory(source.CapturedAtUtc == default ? DateTime.UtcNow : source.CapturedAtUtc);
         var colorFamily = DetectSuitColorFamily(rawSuitRoi);
-        using var trimmedSuit = TrimSuitWhitespace(preprocessedSuitRoi);
-        SaveBitmap(trimmedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_trimmed.png"));
-        using var resizedSuit = ResizeSuitForMatch(trimmedSuit, 64, 64);
+        using var suitMask = BuildSuitForegroundMask(rawSuitRoi);
+        SaveBitmap(suitMask, Path.Combine(debugDirectory, $"suit_{cardIndex}_mask.png"));
+        using var componentCrop = ExtractSuitComponentCrop(rawSuitRoi, out var selectedBounds, out var usedFallback);
+        SaveBitmap(componentCrop, Path.Combine(debugDirectory, $"suit_{cardIndex}_component.png"));
+        using var resizedSuit = ResizeSuitForMatch(componentCrop, 64, 64);
         SaveBitmap(resizedSuit, Path.Combine(debugDirectory, $"suit_{cardIndex}_resized_padded.png"));
+        Debug.WriteLine($"[HeroSuitTemplate] card={cardIndex}; selected_bounds={selectedBounds}; fallback={usedFallback}");
 
         var templateMatch = RecognizeSuitFromTemplates(resizedSuit, colorFamily);
         SaveSuitClassificationDebugArtifact(debugDirectory, cardIndex, templateMatch);
@@ -664,6 +667,218 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         return suitRoi.Clone(crop, suitRoi.PixelFormat);
     }
 
+    private static Bitmap BuildSuitForegroundMask(Bitmap suitRoi)
+    {
+        var mask = new Bitmap(suitRoi.Width, suitRoi.Height, PixelFormat.Format24bppRgb);
+        for (var y = 0; y < suitRoi.Height; y++)
+        {
+            for (var x = 0; x < suitRoi.Width; x++)
+            {
+                var foreground = IsSuitForeground(suitRoi.GetPixel(x, y));
+                mask.SetPixel(x, y, foreground ? Color.Black : Color.White);
+            }
+        }
+
+        return mask;
+    }
+
+    private static bool IsSuitForeground(Color c)
+    {
+        var luminance = (c.R * 299 + c.G * 587 + c.B * 114) / 1000;
+        var maxChannel = Math.Max(c.R, Math.Max(c.G, c.B));
+        var minChannel = Math.Min(c.R, Math.Min(c.G, c.B));
+        var channelSpread = maxChannel - minChannel;
+        var redDominant = c.R >= c.G + 16 && c.R >= c.B + 16;
+        var darkPixel = luminance <= 210;
+        var chromaticPixel = channelSpread >= 24;
+        var lightNeutralBackground = luminance >= 232 && channelSpread <= 18;
+
+        if (lightNeutralBackground)
+        {
+            return false;
+        }
+
+        return darkPixel || chromaticPixel || redDominant;
+    }
+
+    private static Bitmap ExtractSuitComponentCrop(Bitmap suitRoi, out Rectangle selectedBounds, out bool usedFallback)
+    {
+        var mask = new bool[suitRoi.Width, suitRoi.Height];
+        for (var y = 0; y < suitRoi.Height; y++)
+        {
+            for (var x = 0; x < suitRoi.Width; x++)
+            {
+                mask[x, y] = IsSuitForeground(suitRoi.GetPixel(x, y));
+            }
+        }
+
+        var components = ExtractConnectedComponents(mask, suitRoi.Width, suitRoi.Height);
+        var best = SelectBestSuitComponent(components, suitRoi.Width, suitRoi.Height);
+
+        if (best is null)
+        {
+            usedFallback = true;
+            selectedBounds = GetFallbackSuitBounds(suitRoi.Width, suitRoi.Height);
+        }
+        else
+        {
+            usedFallback = false;
+            var bestValue = best.Value;
+            selectedBounds = InflateWithin(bestValue.Bounds, suitRoi.Width, suitRoi.Height, Math.Max(1, Math.Min(3, Math.Min(suitRoi.Width, suitRoi.Height) / 10)));
+        }
+
+        return suitRoi.Clone(selectedBounds, suitRoi.PixelFormat);
+    }
+
+    private static List<SuitComponent> ExtractConnectedComponents(bool[,] mask, int width, int height)
+    {
+        var visited = new bool[width, height];
+        var components = new List<SuitComponent>();
+        var neighbors = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if (!mask[x, y] || visited[x, y])
+                {
+                    continue;
+                }
+
+                var queue = new Queue<(int X, int Y)>();
+                queue.Enqueue((x, y));
+                visited[x, y] = true;
+
+                var minX = x;
+                var minY = y;
+                var maxX = x;
+                var maxY = y;
+                var area = 0;
+                var touchesTop = false;
+                var touchesLeft = false;
+                var touchesRight = false;
+                var touchesBottom = false;
+
+                while (queue.Count > 0)
+                {
+                    var point = queue.Dequeue();
+                    area++;
+                    minX = Math.Min(minX, point.X);
+                    minY = Math.Min(minY, point.Y);
+                    maxX = Math.Max(maxX, point.X);
+                    maxY = Math.Max(maxY, point.Y);
+                    touchesTop |= point.Y == 0;
+                    touchesLeft |= point.X == 0;
+                    touchesRight |= point.X == width - 1;
+                    touchesBottom |= point.Y == height - 1;
+
+                    foreach (var (dx, dy) in neighbors)
+                    {
+                        var nx = point.X + dx;
+                        var ny = point.Y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                        {
+                            continue;
+                        }
+
+                        if (visited[nx, ny] || !mask[nx, ny])
+                        {
+                            continue;
+                        }
+
+                        visited[nx, ny] = true;
+                        queue.Enqueue((nx, ny));
+                    }
+                }
+
+                components.Add(new SuitComponent(
+                    Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1),
+                    area,
+                    touchesTop,
+                    touchesBottom,
+                    touchesLeft,
+                    touchesRight));
+            }
+        }
+
+        return components;
+    }
+
+    private static SuitComponent? SelectBestSuitComponent(IEnumerable<SuitComponent> components, int width, int height)
+    {
+        var minArea = Math.Max(8, (width * height) / 140);
+        var rankBoundaryY = (int)Math.Round(height * 0.20);
+        var leftMiddleLimit = (int)Math.Round(width * 0.75);
+        var lowerHalfY = (int)Math.Round(height * 0.40);
+        var lowerLeftRegionWidth = (int)Math.Round(width * 0.45);
+
+        var candidates = new List<(SuitComponent Component, double Score)>();
+        foreach (var component in components)
+        {
+            if (component.Area < minArea)
+            {
+                continue;
+            }
+
+            if (component.Bounds.Top < rankBoundaryY)
+            {
+                continue;
+            }
+
+            if (component.Bounds.Left > leftMiddleLimit)
+            {
+                continue;
+            }
+
+            var centerX = component.Bounds.Left + (component.Bounds.Width / 2.0);
+            var centerY = component.Bounds.Top + (component.Bounds.Height / 2.0);
+            double score = component.Area;
+            score += centerY * 1.6;
+            score += component.Bounds.Top * 0.8;
+            if (centerX <= lowerLeftRegionWidth && centerY >= lowerHalfY)
+            {
+                score += component.Area * 0.7;
+            }
+
+            if (component.TouchesTop)
+            {
+                score -= component.Area * 0.5;
+            }
+
+            if (component.TouchesLeft || component.TouchesRight)
+            {
+                score -= component.Area * 0.2;
+            }
+
+            candidates.Add((component, score));
+        }
+
+        return candidates
+            .OrderByDescending(x => x.Score)
+            .ThenByDescending(x => x.Component.Area)
+            .Select(x => x.Component)
+            .FirstOrDefault();
+    }
+
+    private static Rectangle GetFallbackSuitBounds(int width, int height)
+    {
+        var x = 0;
+        var y = (int)Math.Round(height * 0.35);
+        var w = Math.Max(2, (int)Math.Round(width * 0.60));
+        var h = Math.Max(2, (int)Math.Round(height * 0.60));
+        var fallback = new Rectangle(x, y, w, h);
+        return Rectangle.Intersect(fallback, new Rectangle(0, 0, width, height));
+    }
+
+    private static Rectangle InflateWithin(Rectangle bounds, int width, int height, int padding)
+    {
+        var left = Math.Max(0, bounds.Left - padding);
+        var top = Math.Max(0, bounds.Top - padding);
+        var right = Math.Min(width, bounds.Right + padding);
+        var bottom = Math.Min(height, bounds.Bottom + padding);
+        return Rectangle.FromLTRB(left, top, right, bottom);
+    }
+
     private static Bitmap ResizeSuitForMatch(Bitmap suit, int width, int height)
     {
         var resized = new Bitmap(width, height, PixelFormat.Format24bppRgb);
@@ -836,4 +1051,12 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         Black = 1,
         Red = 2
     }
+
+    private readonly record struct SuitComponent(
+        Rectangle Bounds,
+        int Area,
+        bool TouchesTop,
+        bool TouchesBottom,
+        bool TouchesLeft,
+        bool TouchesRight);
 }

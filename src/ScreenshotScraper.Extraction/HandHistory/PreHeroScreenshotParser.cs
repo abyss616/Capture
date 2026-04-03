@@ -44,19 +44,21 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
 
         var rawText = (await _ocrEngine.ReadAsync(image, new OcrRequest("full_table", "raw"), cancellationToken).ConfigureAwait(false)).Text;
         var header = _tableHeaderExtractor.Extract(image, rawText);
-        var basePlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
+        var globalPlayers = _seatSnapshotExtractor.Extract(image, rawText).ToList();
         var heroCardRegionImage = CropHeroCardRegion(image);
         //File.WriteAllBytes(@"C:\temp\hero.png", heroCardRegionImage.ImageBytes);
         var heroCards = await _cardExtractor.ExtractHeroCardsAsync(heroCardRegionImage, cancellationToken).ConfigureAwait(false);
         var heroCardsText = heroCards?.ToString() ?? string.Empty;
-        var heroSeat = DetectHeroSeat(basePlayers, heroCards);
-        var tableDetection = _tableVisionDetector.Detect(image, basePlayers);
+        var tableDetection = _tableVisionDetector.Detect(image, globalPlayers);
         var seatLocalResult = await ExtractSeatPlayersFromRoisAsync(image, tableDetection, cancellationToken).ConfigureAwait(false);
-        var mergedPlayers = MergeSeatPlayers(basePlayers, seatLocalResult.Players);
+        // Canonical seat snapshot: unify global OCR + seat-local OCR + table vision occupancy hints.
+        var canonicalPlayers = BuildCanonicalSeatPlayers(globalPlayers, seatLocalResult.Players, tableDetection);
+        // Hero seat must be inferred from the best available seat data (canonical snapshot), not global OCR alone.
+        var heroSeat = DetectHeroSeat(canonicalPlayers, heroCards);
         var dealerSeatField = BuildDealerSeatField(tableDetection);
         var dealerSeat = int.TryParse(dealerSeatField.ParsedValue, out var parsedDealerSeat) ? parsedDealerSeat : (int?)null;
 
-        var players = ApplyDealerAndHeroCards(mergedPlayers, dealerSeat, heroSeat, heroCards, tableDetection);
+        var players = ApplyDealerAndHeroCards(canonicalPlayers, dealerSeat, heroSeat, heroCards, tableDetection);
         var hero = players.FirstOrDefault(player => player.IsHero);
         var heroNameField = BuildHeroNameField(hero, heroSeat.HasValue);
         var heroPositionField = BuildHeroPositionField();
@@ -164,17 +166,11 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var occupiedSeats = tableDetection.OccupiedSeats
             .Where(seat => seat is >= 1 and <= 6)
             .Distinct()
-            .OrderBy(seat => seat)
-            .ToList();
+            .ToHashSet();
 
-        if (occupiedSeats.Count == 0)
+        foreach (var seat in players.Where(HasMeaningfulPlayerData).Select(player => player.Seat))
         {
-            occupiedSeats = players
-                .Where(player => !string.IsNullOrWhiteSpace(player.Name) || !string.IsNullOrWhiteSpace(player.Chips) || !string.IsNullOrWhiteSpace(player.Bet))
-                .Select(player => player.Seat)
-                .Distinct()
-                .OrderBy(seat => seat)
-                .ToList();
+            occupiedSeats.Add(seat);
         }
 
         if (heroSeat.HasValue && !occupiedSeats.Contains(heroSeat.Value))
@@ -182,11 +178,17 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             occupiedSeats.Add(heroSeat.Value);
         }
 
-        occupiedSeats = BuildDealerRelativeSeatOrder(occupiedSeats, dealerSeat);
+        var orderedOccupiedSeats = occupiedSeats.OrderBy(seat => seat).ToList();
+        if (orderedOccupiedSeats.Count == 0)
+        {
+            orderedOccupiedSeats = players.Select(player => player.Seat).Distinct().OrderBy(seat => seat).ToList();
+        }
 
-        var dealerIsOnOccupiedSeat = dealerSeat.HasValue && occupiedSeats.Contains(dealerSeat.Value);
+        orderedOccupiedSeats = BuildDealerRelativeSeatOrder(orderedOccupiedSeats, dealerSeat);
 
-        return occupiedSeats
+        var dealerIsOnOccupiedSeat = dealerSeat.HasValue && orderedOccupiedSeats.Contains(dealerSeat.Value);
+
+        return orderedOccupiedSeats
             .Select(seat =>
             {
                 playersBySeat.TryGetValue(seat, out var extracted);
@@ -235,42 +237,100 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         return $"Seat{seat}_Unknown";
     }
 
-    private static IReadOnlyList<SnapshotPlayer> MergeSeatPlayers(IReadOnlyList<SnapshotPlayer> basePlayers, IReadOnlyList<SnapshotPlayer> seatLocalPlayers)
+    private static IReadOnlyList<SnapshotPlayer> BuildCanonicalSeatPlayers(
+        IReadOnlyList<SnapshotPlayer> globalPlayers,
+        IReadOnlyList<SnapshotPlayer> seatLocalPlayers,
+        TableDetectionResult tableDetection)
     {
-        var bySeat = new Dictionary<int, SnapshotPlayer>();
-        foreach (var player in basePlayers)
+        var seats = globalPlayers.Select(player => player.Seat)
+            .Concat(seatLocalPlayers.Select(player => player.Seat))
+            .Concat(tableDetection.OccupiedSeats)
+            .Where(seat => seat is >= 1 and <= 6)
+            .Distinct()
+            .OrderBy(seat => seat)
+            .ToList();
+
+        var globalBySeat = globalPlayers
+            .Where(player => player.Seat is >= 1 and <= 6)
+            .GroupBy(player => player.Seat)
+            .ToDictionary(group => group.Key, group => group.First());
+        var localBySeat = seatLocalPlayers
+            .Where(player => player.Seat is >= 1 and <= 6)
+            .GroupBy(player => player.Seat)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        var canonical = new List<SnapshotPlayer>(seats.Count);
+        foreach (var seat in seats)
         {
-            bySeat[player.Seat] = player;
+            globalBySeat.TryGetValue(seat, out var global);
+            localBySeat.TryGetValue(seat, out var local);
+
+            canonical.Add(new SnapshotPlayer
+            {
+                Seat = seat,
+                // Prefer seat-local when it is more specific; keep global when seat-local is empty/weak.
+                Name = ChoosePreferredName(global?.Name, local?.Name, seat),
+                Chips = ChoosePreferredText(global?.Chips, local?.Chips),
+                Bet = ChoosePreferredText(global?.Bet, local?.Bet),
+                Win = ChoosePreferredText(global?.Win, local?.Win),
+                Muck = ChoosePreferredText(global?.Muck, local?.Muck),
+                Cashout = ChoosePreferredText(global?.Cashout, local?.Cashout),
+                CashoutFee = ChoosePreferredText(global?.CashoutFee, local?.CashoutFee),
+                RakeAmount = ChoosePreferredText(global?.RakeAmount, local?.RakeAmount),
+                Position = ChoosePreferredText(global?.Position, local?.Position),
+                AppearsFolded = (global?.AppearsFolded ?? false) || (local?.AppearsFolded ?? false),
+                HasVisibleCards = (global?.HasVisibleCards ?? false) || (local?.HasVisibleCards ?? false),
+                Dealer = (global?.Dealer ?? false) || (local?.Dealer ?? false),
+                IsHero = (global?.IsHero ?? false) || (local?.IsHero ?? false)
+            });
         }
 
-        foreach (var local in seatLocalPlayers)
-        {
-            if (!bySeat.TryGetValue(local.Seat, out var existing))
-            {
-                bySeat[local.Seat] = local;
-                continue;
-            }
+        return canonical;
+    }
 
-            bySeat[local.Seat] = new SnapshotPlayer
-            {
-                Seat = existing.Seat,
-                IsHero = existing.IsHero,
-                Dealer = existing.Dealer || local.Dealer,
-                Name = IsReliableNonHeroName(existing.Name) || IsReliableHeroName(existing.Name) ? existing.Name : local.Name,
-                Chips = !string.IsNullOrWhiteSpace(existing.Chips) ? existing.Chips : local.Chips,
-                Bet = !string.IsNullOrWhiteSpace(existing.Bet) ? existing.Bet : local.Bet,
-                Win = existing.Win ?? local.Win,
-                Muck = existing.Muck ?? local.Muck,
-                Cashout = existing.Cashout ?? local.Cashout,
-                CashoutFee = existing.CashoutFee ?? local.CashoutFee,
-                RakeAmount = existing.RakeAmount ?? local.RakeAmount,
-                Position = existing.Position ?? local.Position,
-                AppearsFolded = existing.AppearsFolded || local.AppearsFolded,
-                HasVisibleCards = existing.HasVisibleCards || local.HasVisibleCards
-            };
+    private static string ChoosePreferredName(string? globalName, string? seatLocalName, int seat)
+    {
+        var localLooksReliable = seat == HeroSeatIndex ? IsReliableHeroName(seatLocalName) : IsReliableNonHeroName(seatLocalName);
+        var globalLooksReliable = seat == HeroSeatIndex ? IsReliableHeroName(globalName) : IsReliableNonHeroName(globalName);
+
+        if (localLooksReliable && !globalLooksReliable)
+        {
+            return seatLocalName ?? string.Empty;
         }
 
-        return bySeat.Values.OrderBy(player => player.Seat).ToList();
+        if (globalLooksReliable && !localLooksReliable)
+        {
+            return globalName ?? string.Empty;
+        }
+
+        return ChoosePreferredText(globalName, seatLocalName);
+    }
+
+    private static string ChoosePreferredText(string? globalValue, string? seatLocalValue)
+    {
+        var globalText = globalValue ?? string.Empty;
+        var seatLocalText = seatLocalValue ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(seatLocalText))
+        {
+            return globalText;
+        }
+
+        if (string.IsNullOrWhiteSpace(globalText))
+        {
+            return seatLocalText;
+        }
+
+        return seatLocalText.Length >= globalText.Length ? seatLocalText : globalText;
+    }
+
+    private static bool HasMeaningfulPlayerData(SnapshotPlayer player)
+    {
+        return !string.IsNullOrWhiteSpace(player.Name)
+            || !string.IsNullOrWhiteSpace(player.Chips)
+            || !string.IsNullOrWhiteSpace(player.Bet)
+            || player.AppearsFolded
+            || player.HasVisibleCards;
     }
 
     private static List<int> BuildDealerRelativeSeatOrder(IReadOnlyCollection<int> occupiedSeats, int? dealerSeat)

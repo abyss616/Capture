@@ -120,6 +120,18 @@ public sealed class XmlBuilder : IXmlBuilder
                 new XAttribute("discard", "1"),
                 new XAttribute("dealt", "1"));
         }
+        else
+        {
+            if (action.Discard.HasValue)
+            {
+                element.Add(new XAttribute("discard", action.Discard.Value ? "1" : "0"));
+            }
+
+            if (action.Dealt.HasValue)
+            {
+                element.Add(new XAttribute("dealt", action.Dealt.Value ? "1" : "0"));
+            }
+        }
 
         return element;
     }

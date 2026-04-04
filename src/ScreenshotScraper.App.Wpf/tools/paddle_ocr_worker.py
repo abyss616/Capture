@@ -19,7 +19,7 @@ def eprint(*args: Any) -> None:
 
 
 def json_dumps_line(obj: dict[str, Any]) -> str:
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
 
 
 def ok_result(text: str, confidence: float | None, lines: list[dict[str, Any]]) -> dict[str, Any]:

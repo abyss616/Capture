@@ -286,7 +286,7 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
     public static Rectangle CropRankRegion(int cardWidth, int cardHeight)
     {
         var x = (int)Math.Round(cardWidth * 0.05);
-        var y = (int)Math.Round(cardHeight * 0.1);
+        var y = (int)Math.Round(cardHeight * 0.07);
         var w = Math.Max(4, (int)Math.Round(cardWidth * 0.40));
         var h = Math.Max(4, (int)Math.Round(cardHeight * 0.44));
 
@@ -426,7 +426,8 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
         {
             return null;
         }
-
+        if (sanitized == "1")
+            return "7";
         // Common OCR aliases for Ten.
         if (sanitized is "10" or "1O" or "IO" or "L0")
         {
@@ -449,12 +450,6 @@ public sealed class OcrHeroCardExtractor : ICardExtractor
             }
 
             return null;
-        }
-
-        if (candidate == "1")
-        {
-            // '1' is usually misread Ten leading digit in this UI.
-            return "T";
         }
 
         if (candidate == "O")

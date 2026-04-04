@@ -44,7 +44,9 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             return (round0Actions, round1Actions);
         }
 
-        var currentMax = TryParseBet(bigBlind?.Bet);
+        var currentToMatch = TryParseBet(bigBlind?.Bet);
+        var hasAggressionInRound = false;
+        var firstActorHandled = false;
         var actionNumber = 1;
         foreach (var player in SixMaxPositionMapper.OrderPreflopActors(playersWithPositions).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
         {
@@ -59,36 +61,50 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 {
                     No = actionNumber++,
                     Player = player.Name,
-                    Type = 0,
-                    Sum = string.Empty
+                    Type = SnapshotActionType.Fold,
+                    Sum = string.Empty,
+                    Discard = true,
+                    Dealt = true
                 });
 
+                firstActorHandled = true;
                 continue;
             }
 
             var playerBet = TryParseBet(player.Bet);
-            if (playerBet == currentMax)
+            if (playerBet == currentToMatch)
             {
+                var isBigBlind = string.Equals(player.Position, "BB", StringComparison.OrdinalIgnoreCase);
+                var isFirstActorAfterBigBlind = !firstActorHandled;
+                var actionType = !hasAggressionInRound && (isBigBlind || isFirstActorAfterBigBlind)
+                    ? SnapshotActionType.Check
+                    : SnapshotActionType.Call;
+
                 round1Actions.Add(new SnapshotAction
                 {
                     No = actionNumber++,
                     Player = player.Name,
-                    Type = (SnapshotActionType)3,
+                    Type = actionType,
                     Sum = player.Bet ?? string.Empty
                 });
             }
-            else if (playerBet > currentMax)
+            else if (playerBet > currentToMatch)
             {
                 round1Actions.Add(new SnapshotAction
                 {
                     No = actionNumber++,
                     Player = player.Name,
-                    Type = (SnapshotActionType)23,
-                    Sum = player.Bet ?? string.Empty
+                    Type = SnapshotActionType.Bet,
+                    Sum = player.Bet ?? string.Empty,
+                    Discard = true,
+                    Dealt = true
                 });
 
-                currentMax = playerBet;
+                currentToMatch = playerBet;
+                hasAggressionInRound = true;
             }
+
+            firstActorHandled = true;
         }
 
         return (round0Actions, round1Actions);

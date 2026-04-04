@@ -10,7 +10,11 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var round0Actions = new List<SnapshotAction>();
         var round1Actions = new List<SnapshotAction>();
 
-        var (smallBlind, bigBlind) = ResolveBlindPlayersByBetSize(players);
+        var playersWithPositions = players.Any(player => !string.IsNullOrWhiteSpace(player.Position))
+            ? players
+            : SixMaxPositionMapper.AssignPositions(players);
+
+        var (smallBlind, bigBlind) = ResolveBlindPlayersByBetSize(playersWithPositions);
 
         if (smallBlind is not null)
         {
@@ -34,7 +38,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             });
         }
 
-        var hero = players.FirstOrDefault(player => player.IsHero);
+        var hero = playersWithPositions.FirstOrDefault(player => player.IsHero);
         if (hero is null || string.IsNullOrWhiteSpace(hero.Position))
         {
             return (round0Actions, round1Actions);
@@ -42,7 +46,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
 
         var currentMax = TryParseBet(bigBlind?.Bet);
         var actionNumber = 1;
-        foreach (var player in SixMaxPositionMapper.OrderPreflopActors(players).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
+        foreach (var player in SixMaxPositionMapper.OrderPreflopActors(playersWithPositions).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
         {
             if (player.Seat == hero.Seat)
             {

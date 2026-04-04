@@ -39,16 +39,20 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         }
 
         var hero = playersWithPositions.FirstOrDefault(player => player.IsHero);
-        if (hero is null || string.IsNullOrWhiteSpace(hero.Position))
+        if (hero is null)
         {
             return (round0Actions, round1Actions);
         }
 
         var currentToMatch = TryParseBet(bigBlind?.Bet);
         var hasAggressionInRound = false;
-        var firstActorHandled = false;
         var actionNumber = 1;
-        foreach (var player in SixMaxPositionMapper.OrderPreflopActors(playersWithPositions).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
+        var hasAnyPosition = playersWithPositions.Any(player => !string.IsNullOrWhiteSpace(player.Position));
+        var orderedPlayers = hasAnyPosition
+            ? SixMaxPositionMapper.OrderPreflopActors(playersWithPositions)
+            : playersWithPositions.OrderBy(player => player.Seat).ToList();
+
+        foreach (var player in orderedPlayers)
         {
             if (player.Seat == hero.Seat)
             {
@@ -67,7 +71,6 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                     Dealt = true
                 });
 
-                firstActorHandled = true;
                 continue;
             }
 
@@ -75,8 +78,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             if (playerBet == currentToMatch)
             {
                 var isBigBlind = string.Equals(player.Position, "BB", StringComparison.OrdinalIgnoreCase);
-                var isFirstActorAfterBigBlind = !firstActorHandled;
-                var actionType = !hasAggressionInRound && (isBigBlind || isFirstActorAfterBigBlind)
+                var actionType = !hasAggressionInRound && isBigBlind
                     ? SnapshotActionType.Check
                     : SnapshotActionType.Call;
 
@@ -103,8 +105,6 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 currentToMatch = playerBet;
                 hasAggressionInRound = true;
             }
-
-            firstActorHandled = true;
         }
 
         return (round0Actions, round1Actions);

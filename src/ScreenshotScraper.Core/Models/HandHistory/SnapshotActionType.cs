@@ -7,6 +7,5 @@ public enum SnapshotActionType
     BigBlindPost = 2,
     Call = 3,
     Check = 4,
-    Bet = 23,
-    Raise = 24
+    Bet = 23
 }

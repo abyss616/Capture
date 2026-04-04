@@ -90,12 +90,11 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             }
             else if (playerBet > currentToMatch)
             {
-                var actionType = hasAggressionInRound ? SnapshotActionType.Raise : SnapshotActionType.Bet;
                 round1Actions.Add(new SnapshotAction
                 {
                     No = actionNumber++,
                     Player = player.Name,
-                    Type = actionType,
+                    Type = SnapshotActionType.Bet,
                     Sum = player.Bet ?? string.Empty,
                     Discard = true,
                     Dealt = true

@@ -48,6 +48,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var hasAggressionInRound = false;
         var firstActorHandled = false;
         var actionNumber = 1;
+        var postedBlindBySeat = BuildPostedBlindMap(smallBlind, bigBlind);
         foreach (var player in SixMaxPositionMapper.OrderPreflopActors(playersWithPositions).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
         {
             if (player.Seat == hero.Seat)
@@ -80,12 +81,19 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                     ? SnapshotActionType.Check
                     : SnapshotActionType.Call;
 
+                var postedBlind = postedBlindBySeat.TryGetValue(player.Seat, out var blindAmount)
+                    ? blindAmount
+                    : 0m;
+                var incrementalCall = Math.Max(0m, currentToMatch - postedBlind);
+
                 round1Actions.Add(new SnapshotAction
                 {
                     No = actionNumber++,
                     Player = player.Name,
                     Type = actionType,
-                    Sum = player.Bet ?? string.Empty
+                    Sum = actionType == SnapshotActionType.Check
+                        ? "€0"
+                        : FormatCurrency(incrementalCall)
                 });
             }
             else if (playerBet > currentToMatch)
@@ -108,6 +116,28 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         }
 
         return (round0Actions, round1Actions);
+    }
+
+    private static Dictionary<int, decimal> BuildPostedBlindMap(SnapshotPlayer? smallBlind, SnapshotPlayer? bigBlind)
+    {
+        var postedBlindBySeat = new Dictionary<int, decimal>();
+
+        if (smallBlind is not null)
+        {
+            postedBlindBySeat[smallBlind.Seat] = TryParseBet(smallBlind.Bet);
+        }
+
+        if (bigBlind is not null)
+        {
+            postedBlindBySeat[bigBlind.Seat] = TryParseBet(bigBlind.Bet);
+        }
+
+        return postedBlindBySeat;
+    }
+
+    private static string FormatCurrency(decimal value)
+    {
+        return $"€{value:0.##}";
     }
 
     private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)

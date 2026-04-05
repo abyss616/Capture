@@ -14,5 +14,8 @@ public sealed class PokerActionMix
     public int FoldPercent { get; set; }
 
     [JsonPropertyName("bet_percent")]
-    public string BetPercent { get; set; } = string.Empty;
+    public int BetPercent { get; set; }
+
+    [JsonPropertyName("bet_size_bb")]
+    public decimal BetSizeBb { get; set; }
 }

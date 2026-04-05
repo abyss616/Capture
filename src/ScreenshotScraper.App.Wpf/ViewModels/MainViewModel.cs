@@ -38,7 +38,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _checkPercent;
     private int _callPercent;
     private int _foldPercent;
-    private string _betPercent = string.Empty;
+    private int _betPercent;
+    private decimal _betSizeBb;
+    private string _betRecommendation = "0%";
     private Brush _checkPercentBrush = Brushes.Black;
     private Brush _callPercentBrush = Brushes.Black;
     private Brush _foldPercentBrush = Brushes.Black;
@@ -144,12 +146,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string BetPercent
+    public int BetPercent
     {
         get => _betPercent;
         private set
         {
             _betPercent = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public decimal BetSizeBb
+    {
+        get => _betSizeBb;
+        private set
+        {
+            _betSizeBb = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string BetRecommendation
+    {
+        get => _betRecommendation;
+        private set
+        {
+            _betRecommendation = value;
             OnPropertyChanged();
         }
     }
@@ -359,7 +381,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CheckPercent = 0;
             CallPercent = 0;
             FoldPercent = 0;
-            BetPercent = string.Empty;
+            BetPercent = 0;
+            BetSizeBb = 0;
+            BetRecommendation = "0%";
             CheckPercentBrush = Brushes.Black;
             CallPercentBrush = Brushes.Black;
             FoldPercentBrush = Brushes.Black;
@@ -371,6 +395,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CallPercent = actionMix.CallPercent;
         FoldPercent = actionMix.FoldPercent;
         BetPercent = actionMix.BetPercent;
+        BetSizeBb = actionMix.BetSizeBb;
+        BetRecommendation = BetPercent > 0
+            ? $"{BetPercent}% ({BetSizeBb:0.##} BB)"
+            : $"{BetPercent}%";
 
         LastPayloadJson = JsonSerializer.Serialize(actionMix, new JsonSerializerOptions { WriteIndented = true });
 

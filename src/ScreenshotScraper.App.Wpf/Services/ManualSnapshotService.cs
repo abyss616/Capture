@@ -151,6 +151,7 @@ Analyze the screenshot and return only JSON with:
 - fold_percent
 - bet_percent
 - bet_size_bb
+- summary_decision
 
 Rules:
 - integers only (except bet_size_bb)
@@ -159,6 +160,7 @@ Rules:
 - use 0 for impossible actions
 - if bet_percent > 0, set bet_size_bb to recommended size in BBs (decimals ok, e.g. 2.5)
 - if bet_percent = 0, set bet_size_bb = 0
+- summary_decision must be exactly 2 sentences describing the recommended line
 - return ONLY raw JSON, no markdown, no explanation
 """,
             messages = new object[]

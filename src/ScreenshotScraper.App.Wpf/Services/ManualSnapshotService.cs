@@ -16,7 +16,7 @@ public sealed class ManualSnapshotService
     private readonly IOcrEngine _ocrEngine;
     private readonly ITableVisionDetector _tableVisionDetector;
     private readonly HttpClient _httpClient = new();
-    private const string ResponsesEndpoint = "https://api.openai.com/v1/responses";
+    private const string ResponsesEndpoint = "https://api.anthropic.com/v1/messages";
     private int? _lastDealerSeat;
 
     public ManualSnapshotService(
@@ -135,31 +135,33 @@ public sealed class ManualSnapshotService
 
         using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
+        var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
         var requestBody = new
         {
-            model = "gpt-5.4",
-            instructions = """
+            model = "claude-sonnet-4-20250514",
+            max_tokens = 1000,
+            system = """
 You are a poker decision engine for No-Limit Hold'em.
-
 Analyze the screenshot and return only JSON with:
 - check_percent
-- call_percent
+- call_percent  
 - fold_percent
 - bet_percent
 - bet_size_bb
 
 Rules:
-- integers only
-- each value 0 to 100
-- total must equal 100
+- integers only (except bet_size_bb)
+- each percent value 0 to 100
+- total percents must equal 100
 - use 0 for impossible actions
-- no explanation
-- if bet_percent > 0, set bet_size_bb to the recommended size in big blinds (allow decimals like 2.5)
+- if bet_percent > 0, set bet_size_bb to recommended size in BBs (decimals ok, e.g. 2.5)
 - if bet_percent = 0, set bet_size_bb = 0
-- if you receive newGame = true, build new game tree, if new game is false, then continue existing game tree
+- return ONLY raw JSON, no markdown, no explanation
 """,
-            input = new object[]
+            messages = new object[]
             {
         new
         {
@@ -168,53 +170,35 @@ Rules:
             {
                 new
                 {
-                    type = "input_text",
-                    text = $"newGame={payload.NewGame}. Return JSON."
+                    type = "image",
+                    source = new
+                    {
+                        type = "base64",
+                        media_type = "image/png",
+                        data = payload.Byte64
+                    }
                 },
                 new
                 {
-                    type = "input_image",
-                    image_url = $"data:image/png;base64,{payload.Byte64}"
+                    type = "text",
+                    text = $"newGame={payload.NewGame}. Return JSON only."
                 }
             }
         }
-            },
-            text = new
-            {
-                format = new
-                {
-                    type = "json_schema",
-                    name = "poker_action_mix",
-                    schema = new
-                    {
-                        type = "object",
-                        additionalProperties = false,
-                        properties = new
-                        {
-                            check_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            call_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            fold_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            bet_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            bet_size_bb = new { type = "number", minimum = 0 }
-                        },
-                        required = new[]
-                        {
-                    "check_percent",
-                    "call_percent",
-                    "fold_percent",
-                    "bet_percent",
-                    "bet_size_bb"
-                }
-                    }
-                }
             }
         };
+        var content = new StringContent(
+    JsonSerializer.Serialize(requestBody),
+    Encoding.UTF8,
+    "application/json"
+);
 
+        var response = await client.PostAsync("https://api.anthropic.com/v1/messages", content);
         var json = JsonSerializer.Serialize(requestBody);
 
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        //using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
@@ -225,8 +209,65 @@ Rules:
                 $"Response body:\n{body}");
         }
 
-        return ParseActionMix(body);
+        return ClaudeParseActionMix(body);
     }
+
+    private static PokerActionMix ClaudeParseActionMix(string responseBody)
+    {
+        using var responseDocument = JsonDocument.Parse(responseBody);
+
+        // Check for API errors first
+        if (responseDocument.RootElement.TryGetProperty("error", out var errorElement))
+        {
+            var errorMsg = errorElement.TryGetProperty("message", out var msg)
+                ? msg.GetString()
+                : "Unknown error";
+            throw new InvalidOperationException($"Claude API error: {errorMsg}");
+        }
+
+        // Anthropic structure: { "content": [ { "type": "text", "text": "..." } ] }
+        if (!responseDocument.RootElement.TryGetProperty("content", out var contentElement)
+            || contentElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("Claude response does not include a content array.");
+        }
+
+        foreach (var contentItem in contentElement.EnumerateArray())
+        {
+            if (!contentItem.TryGetProperty("type", out var typeElement)
+                || typeElement.GetString() != "text")
+            {
+                continue;
+            }
+
+            if (!contentItem.TryGetProperty("text", out var textElement)
+                || textElement.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var jsonText = textElement.GetString();
+            if (string.IsNullOrWhiteSpace(jsonText))
+            {
+                continue;
+            }
+
+            // Strip markdown code blocks if Claude wraps JSON in them
+            jsonText = jsonText
+                .Replace("```json", "")
+                .Replace("```", "")
+                .Trim();
+
+            var actionMix = JsonSerializer.Deserialize<PokerActionMix>(jsonText);
+            if (actionMix is not null)
+            {
+                return actionMix;
+            }
+        }
+
+        throw new InvalidOperationException("Claude response did not contain a valid poker action mix JSON object.");
+    }
+
 
     private static PokerActionMix ParseActionMix(string responseBody)
     {

@@ -1,16 +1,4 @@
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Json;
-using System.Windows.Media.Imaging;
-using System.Windows.Media;
 using OpenCvSharp;
-using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.App.Wpf.Helpers;
 using ScreenshotScraper.App.Wpf.Models;
 using ScreenshotScraper.App.Wpf.Services;
@@ -18,6 +6,17 @@ using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
+using ScreenshotScraper.Extraction.HandHistory;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+using System.Windows.Media.Imaging;
+
 
 namespace ScreenshotScraper.App.Wpf.ViewModels;
 

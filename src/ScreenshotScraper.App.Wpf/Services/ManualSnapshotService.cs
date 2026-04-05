@@ -154,6 +154,7 @@ Rules:
 - total must equal 100
 - use 0 for impossible actions
 - no explanation
+- if bet_percent, how many big blinds should bet
 """,
             input = new object[]
             {

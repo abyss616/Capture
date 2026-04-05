@@ -30,7 +30,10 @@ public sealed class ManualSnapshotService
         _tableVisionDetector = tableVisionDetector;
     }
 
-    public async Task<ManualSnapshotResult> SendSnapshotAsync(CancellationToken cancellationToken = default)
+    public Task<ManualSnapshotResult> SendSnapshotAsync(CancellationToken cancellationToken = default)
+        => SendSnapshotAsync(forceNewGame: false, cancellationToken);
+
+    public async Task<ManualSnapshotResult> SendSnapshotAsync(bool forceNewGame, CancellationToken cancellationToken = default)
     {
         var capture = await _screenshotService.CaptureAsync(cancellationToken).ConfigureAwait(false);
 
@@ -48,9 +51,11 @@ public sealed class ManualSnapshotService
         var detection = _tableVisionDetector.Detect(capture, []);
         var currentDealerSeat = detection.DealerSeat;
 
-        var newGame = _lastDealerSeat.HasValue
+        var detectedNewGame = _lastDealerSeat.HasValue
             && currentDealerSeat.HasValue
             && _lastDealerSeat.Value != currentDealerSeat.Value;
+
+        var newGame = forceNewGame || detectedNewGame;
 
         if (currentDealerSeat.HasValue)
         {

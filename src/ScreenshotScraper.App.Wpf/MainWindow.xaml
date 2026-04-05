@@ -40,8 +40,13 @@
                     Click="BuildXmlButton_Click" />
             <Button Content="Send Snapshot"
                     Width="140"
+                    Margin="0,0,12,0"
                     Padding="12,6"
                     Click="SendSnapshotButton_Click" />
+            <Button Content="Send New Game Snapshot"
+                    Width="220"
+                    Padding="12,6"
+                    Click="SendNewGameSnapshotButton_Click" />
         </StackPanel>
 
         <Grid Grid.Row="2">

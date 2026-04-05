@@ -240,6 +240,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task SendNewGameSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _manualSnapshotService.SendSnapshotAsync(forceNewGame: true, cancellationToken).ConfigureAwait(true);
+
+            _capturedImage = result.Capture;
+            SetPreview(result.Capture);
+            CaptureMetadata = BuildMetadataSummary(result.Capture);
+            StatusMessage = result.StatusMessage;
+            LastPayloadJson = result.Payload is null
+                ? "No payload sent."
+                : JsonSerializer.Serialize(result.Payload, new JsonSerializerOptions { WriteIndented = true });
+
+            BuildSeatRoiDebugArtifacts(result.Capture);
+            BuildHeroCardOcrInputPreview(result.Capture);
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"Manual new-game snapshot failed: {exception.Message}";
+            LastPayloadJson = exception.ToString();
+        }
+    }
+
     private void ApplyWorkflowResult(PreHeroHandHistoryXmlWorkflowResult workflowResult)
     {
         _capturedImage = workflowResult.PreparedImage ?? _capturedImage;

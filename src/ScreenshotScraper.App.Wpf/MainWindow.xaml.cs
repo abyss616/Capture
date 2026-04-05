@@ -30,6 +30,11 @@ public partial class MainWindow : Window
         await _viewModel.SendSnapshotAsync();
     }
 
+    private async void SendNewGameSnapshotButton_Click(object sender, RoutedEventArgs e)
+    {
+        await _viewModel.SendNewGameSnapshotAsync();
+    }
+
     private async void UploadScreenshotButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog

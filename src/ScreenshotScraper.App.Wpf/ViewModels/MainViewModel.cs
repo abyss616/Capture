@@ -8,9 +8,11 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Media.Imaging;
+using System.Windows.Media;
 using OpenCvSharp;
 using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.App.Wpf.Helpers;
+using ScreenshotScraper.App.Wpf.Models;
 using ScreenshotScraper.App.Wpf.Services;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
@@ -34,6 +36,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
     private string _heroCardOcrInputStatus = "Run XML to load the two exact hero-card OCR input images (left/right rank crops).";
     private string _lastPayloadJson = "No manual snapshot sent yet.";
+    private int _checkPercent;
+    private int _callPercent;
+    private int _foldPercent;
+    private int _betPercent;
+    private Brush _checkPercentBrush = Brushes.Black;
+    private Brush _callPercentBrush = Brushes.Black;
+    private Brush _foldPercentBrush = Brushes.Black;
+    private Brush _betPercentBrush = Brushes.Black;
 
     public MainViewModel(
         IScreenshotService screenshotService,
@@ -101,6 +111,86 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set
         {
             _lastPayloadJson = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int CheckPercent
+    {
+        get => _checkPercent;
+        private set
+        {
+            _checkPercent = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int CallPercent
+    {
+        get => _callPercent;
+        private set
+        {
+            _callPercent = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int FoldPercent
+    {
+        get => _foldPercent;
+        private set
+        {
+            _foldPercent = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int BetPercent
+    {
+        get => _betPercent;
+        private set
+        {
+            _betPercent = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Brush CheckPercentBrush
+    {
+        get => _checkPercentBrush;
+        private set
+        {
+            _checkPercentBrush = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Brush CallPercentBrush
+    {
+        get => _callPercentBrush;
+        private set
+        {
+            _callPercentBrush = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Brush FoldPercentBrush
+    {
+        get => _foldPercentBrush;
+        private set
+        {
+            _foldPercentBrush = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Brush BetPercentBrush
+    {
+        get => _betPercentBrush;
+        private set
+        {
+            _betPercentBrush = value;
             OnPropertyChanged();
         }
     }
@@ -226,9 +316,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SetPreview(result.Capture);
             CaptureMetadata = BuildMetadataSummary(result.Capture);
             StatusMessage = result.StatusMessage;
-            LastPayloadJson = result.Payload is null
-                ? "No payload sent."
-                : JsonSerializer.Serialize(result.Payload, new JsonSerializerOptions { WriteIndented = true });
+            ApplyPokerActionMix(result.Payload);
 
             BuildSeatRoiDebugArtifacts(result.Capture);
             BuildHeroCardOcrInputPreview(result.Capture);
@@ -237,6 +325,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             StatusMessage = $"Manual snapshot failed: {exception.Message}";
             LastPayloadJson = exception.ToString();
+            ApplyPokerActionMix(null);
         }
     }
 
@@ -250,9 +339,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SetPreview(result.Capture);
             CaptureMetadata = BuildMetadataSummary(result.Capture);
             StatusMessage = result.StatusMessage;
-            LastPayloadJson = result.Payload is null
-                ? "No payload sent."
-                : JsonSerializer.Serialize(result.Payload, new JsonSerializerOptions { WriteIndented = true });
+            ApplyPokerActionMix(result.Payload);
 
             BuildSeatRoiDebugArtifacts(result.Capture);
             BuildHeroCardOcrInputPreview(result.Capture);
@@ -261,7 +348,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             StatusMessage = $"Manual new-game snapshot failed: {exception.Message}";
             LastPayloadJson = exception.ToString();
+            ApplyPokerActionMix(null);
         }
+    }
+
+    private void ApplyPokerActionMix(PokerActionMix? actionMix)
+    {
+        if (actionMix is null)
+        {
+            LastPayloadJson = "No payload sent.";
+            CheckPercent = 0;
+            CallPercent = 0;
+            FoldPercent = 0;
+            BetPercent = 0;
+            CheckPercentBrush = Brushes.Black;
+            CallPercentBrush = Brushes.Black;
+            FoldPercentBrush = Brushes.Black;
+            BetPercentBrush = Brushes.Black;
+            return;
+        }
+
+        CheckPercent = actionMix.CheckPercent;
+        CallPercent = actionMix.CallPercent;
+        FoldPercent = actionMix.FoldPercent;
+        BetPercent = actionMix.BetPercent;
+
+        LastPayloadJson = JsonSerializer.Serialize(actionMix, new JsonSerializerOptions { WriteIndented = true });
+
+        var maxPercent = new[] { CheckPercent, CallPercent, FoldPercent, BetPercent }.Max();
+        CheckPercentBrush = CheckPercent == maxPercent ? Brushes.Green : Brushes.Black;
+        CallPercentBrush = CallPercent == maxPercent ? Brushes.Green : Brushes.Black;
+        FoldPercentBrush = FoldPercent == maxPercent ? Brushes.Green : Brushes.Black;
+        BetPercentBrush = BetPercent == maxPercent ? Brushes.Green : Brushes.Black;
     }
 
     private void ApplyWorkflowResult(PreHeroHandHistoryXmlWorkflowResult workflowResult)

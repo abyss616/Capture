@@ -289,13 +289,46 @@
         </GroupBox>
     
         <GroupBox Grid.Row="8" Header="Manual Snapshot Payload">
-            <TextBox Text="{Binding LastPayloadJson, Mode=OneWay}"
-                     IsReadOnly="True"
-                     AcceptsReturn="True"
-                     VerticalScrollBarVisibility="Auto"
-                     HorizontalScrollBarVisibility="Auto"
-                     TextWrapping="Wrap"
-                     FontFamily="Consolas" />
+            <Grid Margin="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Check:" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="0" Grid.Column="2"
+                           Text="{Binding CheckPercent, StringFormat={}{0}%}"
+                           Foreground="{Binding CheckPercentBrush}"
+                           FontWeight="Bold" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Call:" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="2" Grid.Column="2"
+                           Text="{Binding CallPercent, StringFormat={}{0}%}"
+                           Foreground="{Binding CallPercentBrush}"
+                           FontWeight="Bold" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Fold:" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="4" Grid.Column="2"
+                           Text="{Binding FoldPercent, StringFormat={}{0}%}"
+                           Foreground="{Binding FoldPercentBrush}"
+                           FontWeight="Bold" />
+
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Bet:" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="6" Grid.Column="2"
+                           Text="{Binding BetPercent, StringFormat={}{0}%}"
+                           Foreground="{Binding BetPercentBrush}"
+                           FontWeight="Bold" />
+            </Grid>
         </GroupBox>
 
     </Grid>

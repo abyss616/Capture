@@ -1,23 +1,22 @@
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
 using OpenCvSharp;
 using ScreenshotScraper.App.Wpf.Models;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Extraction.HandHistory;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 namespace ScreenshotScraper.App.Wpf.Services;
 
 public sealed class ManualSnapshotService
 {
-    private static readonly Uri DummyEndpoint = new("https://api.openai.com/v1/responses");
-
     private readonly IScreenshotService _screenshotService;
     private readonly IOcrEngine _ocrEngine;
     private readonly ITableVisionDetector _tableVisionDetector;
     private readonly HttpClient _httpClient = new();
-
+    private const string ResponsesEndpoint = "https://api.openai.com/v1/responses";
     private int? _lastDealerSeat;
 
     public ManualSnapshotService(
@@ -64,17 +63,14 @@ public sealed class ManualSnapshotService
 
         var payload = new ManualSnapshotPayload
         {
-            Byte64 = [Convert.ToBase64String(capture.ImageBytes)],
+            Byte64 = Convert.ToBase64String(capture.ImageBytes),
             NewGame = newGame
         };
 
         var sent = await PostPayloadAsync(payload, cancellationToken).ConfigureAwait(false);
 
-        var status = sent
-            ? $"Snapshot sent. Dealer seat: {(currentDealerSeat?.ToString() ?? "unknown")}. NewGame={newGame}."
-            : $"Snapshot post failed. Dealer seat: {(currentDealerSeat?.ToString() ?? "unknown")}. NewGame={newGame}.";
-
-        return new ManualSnapshotResult(capture, status, payload, currentDealerSeat, sent);
+     
+        return new ManualSnapshotResult(capture, sent, payload, currentDealerSeat, true);
     }
 
     private async Task<bool> HasCheckOrFoldAsync(CapturedImage capture, CancellationToken cancellationToken)
@@ -130,20 +126,103 @@ public sealed class ManualSnapshotService
             || normalized.Contains("FOLD", StringComparison.Ordinal);
     }
 
-    private async Task<bool> PostPayloadAsync(ManualSnapshotPayload payload, CancellationToken cancellationToken)
+    private async Task<string> PostPayloadAsync(ManualSnapshotPayload payload, CancellationToken cancellationToken)
     {
-        try
+        var apiKey = Environment.GetEnvironmentVariable("OPENAPI_AI_KEY");
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
-            var json = JsonSerializer.Serialize(payload);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var response = await _httpClient.PostAsync(DummyEndpoint, content, cancellationToken).ConfigureAwait(false);
-            return response.IsSuccessStatusCode;
+            throw new InvalidOperationException("Environment variable OPENAPI_AI_KEY is missing.");
         }
-        catch
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        var requestBody = new
         {
-            return false;
+            model = "gpt-5.4",
+            instructions = """
+You are a poker decision engine for No-Limit Hold'em.
+
+Analyze the screenshot and return only JSON with:
+- check_percent
+- call_percent
+- fold_percent
+- bet_percent
+
+Rules:
+- integers only
+- each value 0 to 100
+- total must equal 100
+- use 0 for impossible actions
+- no explanation
+""",
+            input = new object[]
+            {
+        new
+        {
+            role = "user",
+            content = new object[]
+            {
+                new
+                {
+                    type = "input_text",
+                    text = $"newGame={payload.NewGame}. Return JSON."
+                },
+                new
+                {
+                    type = "input_image",
+                    image_url = $"data:image/png;base64,{payload.Byte64}"
+                }
+            }
         }
+            },
+            text = new
+            {
+                format = new
+                {
+                    type = "json_schema",
+                    name = "poker_action_mix",
+                    schema = new
+                    {
+                        type = "object",
+                        additionalProperties = false,
+                        properties = new
+                        {
+                            check_percent = new { type = "integer", minimum = 0, maximum = 100 },
+                            call_percent = new { type = "integer", minimum = 0, maximum = 100 },
+                            fold_percent = new { type = "integer", minimum = 0, maximum = 100 },
+                            bet_percent = new { type = "integer", minimum = 0, maximum = 100 }
+                        },
+                        required = new[]
+                        {
+                    "check_percent",
+                    "call_percent",
+                    "fold_percent",
+                    "bet_percent"
+                }
+                    }
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"OpenAI request failed. Status={(int)response.StatusCode} {response.StatusCode}\n" +
+                $"Request JSON:\n{json}\n\n" +
+                $"Response body:\n{body}");
+        }
+
+        return body;
     }
+
 }
 
 public sealed record ManualSnapshotResult(

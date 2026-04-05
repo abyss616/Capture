@@ -30,31 +30,49 @@ public sealed class PokerTableScreenshotService : IScreenshotService
 
         if (window.Width <= 0 || window.Height <= 0)
         {
-            throw new WindowCaptureException($"Window '{window.Title}' has invalid bounds {window.Width}x{window.Height}.");
+            throw new WindowCaptureException(
+                $"Window '{window.Title}' has invalid bounds {window.Width}x{window.Height}.");
         }
 
         try
         {
-            using var bitmap = new Bitmap(window.Width, window.Height, PixelFormat.Format32bppArgb);
-            using var graphics = Graphics.FromImage(bitmap);
-            graphics.CopyFromScreen(window.Left, window.Top, 0, 0, new Size(window.Width, window.Height), CopyPixelOperation.SourceCopy);
+            byte[] pngBytes;
+            int width = window.Width;
+            int height = window.Height;
 
-            using var stream = new MemoryStream();
-            bitmap.Save(stream, ImageFormat.Png);
+            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            {
+                using (var graphics = Graphics.FromImage(bitmap))
+                {
+                    graphics.CopyFromScreen(
+                        window.Left,
+                        window.Top,
+                        0,
+                        0,
+                        new Size(width, height),
+                        CopyPixelOperation.SourceCopy);
+                }
+
+                using (var stream = new MemoryStream())
+                {
+                    bitmap.Save(stream, ImageFormat.Png);
+                    pngBytes = stream.ToArray();
+                }
+            }
 
             return Task.FromResult(new CapturedImage
             {
-                ImageBytes = stream.ToArray(),
-                Width = bitmap.Width,
-                Height = bitmap.Height,
+                ImageBytes = pngBytes,
+                Width = width,
+                Height = height,
                 CapturedAtUtc = DateTime.UtcNow,
                 SourceDescription = "PokerClient visible top-level window",
                 WindowTitle = window.Title,
                 ProcessName = window.ProcessName,
                 WindowLeft = window.Left,
                 WindowTop = window.Top,
-                WindowWidth = window.Width,
-                WindowHeight = window.Height,
+                WindowWidth = width,
+                WindowHeight = height,
                 IsVisible = window.IsVisible,
                 IsForegroundWindow = window.IsForeground,
                 WindowHandle = window.Handle,

@@ -67,10 +67,9 @@ public sealed class ManualSnapshotService
             NewGame = newGame
         };
 
-        var sent = await PostPayloadAsync(payload, cancellationToken).ConfigureAwait(false);
+        var actionMix = await PostPayloadAsync(payload, cancellationToken).ConfigureAwait(false);
 
-     
-        return new ManualSnapshotResult(capture, sent, payload, currentDealerSeat, true);
+        return new ManualSnapshotResult(capture, "Snapshot sent.", actionMix, currentDealerSeat, true);
     }
 
     private async Task<bool> HasCheckOrFoldAsync(CapturedImage capture, CancellationToken cancellationToken)
@@ -126,7 +125,7 @@ public sealed class ManualSnapshotService
             || normalized.Contains("FOLD", StringComparison.Ordinal);
     }
 
-    private async Task<string> PostPayloadAsync(ManualSnapshotPayload payload, CancellationToken cancellationToken)
+    private async Task<PokerActionMix> PostPayloadAsync(ManualSnapshotPayload payload, CancellationToken cancellationToken)
     {
         var apiKey = Environment.GetEnvironmentVariable("OPENAPI_AI_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -220,14 +219,55 @@ Rules:
                 $"Response body:\n{body}");
         }
 
-        return body;
+        return ParseActionMix(body);
     }
 
+    private static PokerActionMix ParseActionMix(string responseBody)
+    {
+        using var responseDocument = JsonDocument.Parse(responseBody);
+        if (!responseDocument.RootElement.TryGetProperty("output", out var outputElement)
+            || outputElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("OpenAI response does not include an output array.");
+        }
+
+        foreach (var outputItem in outputElement.EnumerateArray())
+        {
+            if (!outputItem.TryGetProperty("content", out var contentElement)
+                || contentElement.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var contentItem in contentElement.EnumerateArray())
+            {
+                if (!contentItem.TryGetProperty("text", out var textElement)
+                    || textElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var jsonText = textElement.GetString();
+                if (string.IsNullOrWhiteSpace(jsonText))
+                {
+                    continue;
+                }
+
+                var actionMix = JsonSerializer.Deserialize<PokerActionMix>(jsonText);
+                if (actionMix is not null)
+                {
+                    return actionMix;
+                }
+            }
+        }
+
+        throw new InvalidOperationException("OpenAI response did not contain a valid poker action mix JSON object.");
+    }
 }
 
 public sealed record ManualSnapshotResult(
     CapturedImage Capture,
     string StatusMessage,
-    ManualSnapshotPayload? Payload,
+    PokerActionMix? Payload,
     int? DealerSeat,
     bool PostAttempted);

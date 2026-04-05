@@ -155,6 +155,7 @@ Rules:
 - use 0 for impossible actions
 - no explanation
 - if bet_percent, how many big blinds should bet
+- if you receive newGame = true, build new game tree, if new game is false, then continue existing game tree
 """,
             input = new object[]
             {
@@ -191,7 +192,7 @@ Rules:
                             check_percent = new { type = "integer", minimum = 0, maximum = 100 },
                             call_percent = new { type = "integer", minimum = 0, maximum = 100 },
                             fold_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            bet_percent = new { type = "integer", minimum = 0, maximum = 100 }
+                            bet_percent = new { type = "string" }
                         },
                         required = new[]
                         {

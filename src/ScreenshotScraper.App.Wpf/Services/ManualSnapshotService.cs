@@ -147,6 +147,7 @@ Analyze the screenshot and return only JSON with:
 - call_percent
 - fold_percent
 - bet_percent
+- bet_size_bb
 
 Rules:
 - integers only
@@ -154,7 +155,8 @@ Rules:
 - total must equal 100
 - use 0 for impossible actions
 - no explanation
-- if bet_percent, how many big blinds should bet
+- if bet_percent > 0, set bet_size_bb to the recommended size in big blinds (allow decimals like 2.5)
+- if bet_percent = 0, set bet_size_bb = 0
 - if you receive newGame = true, build new game tree, if new game is false, then continue existing game tree
 """,
             input = new object[]
@@ -192,14 +194,16 @@ Rules:
                             check_percent = new { type = "integer", minimum = 0, maximum = 100 },
                             call_percent = new { type = "integer", minimum = 0, maximum = 100 },
                             fold_percent = new { type = "integer", minimum = 0, maximum = 100 },
-                            bet_percent = new { type = "string" }
+                            bet_percent = new { type = "integer", minimum = 0, maximum = 100 },
+                            bet_size_bb = new { type = "number", minimum = 0 }
                         },
                         required = new[]
                         {
                     "check_percent",
                     "call_percent",
                     "fold_percent",
-                    "bet_percent"
+                    "bet_percent",
+                    "bet_size_bb"
                 }
                     }
                 }

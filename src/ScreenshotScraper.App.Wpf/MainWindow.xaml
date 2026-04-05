@@ -325,7 +325,7 @@
 
                 <TextBlock Grid.Row="6" Grid.Column="0" Text="Bet:" FontWeight="SemiBold" />
                 <TextBlock Grid.Row="6" Grid.Column="2"
-                           Text="{Binding BetPercent, StringFormat={}{0}%}"
+                           Text="{Binding BetRecommendation}"
                            Foreground="{Binding BetPercentBrush}"
                            FontWeight="Bold" />
             </Grid>

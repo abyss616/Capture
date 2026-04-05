@@ -11,7 +11,7 @@ namespace ScreenshotScraper.App.Wpf.Services;
 
 public sealed class ManualSnapshotService
 {
-    private static readonly Uri DummyEndpoint = new("https://example.invalid/api/table-snapshot");
+    private static readonly Uri DummyEndpoint = new("https://api.openai.com/v1/responses");
 
     private readonly IScreenshotService _screenshotService;
     private readonly IOcrEngine _ocrEngine;

@@ -41,6 +41,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _betPercent;
     private decimal _betSizeBb;
     private string _betRecommendation = "0%";
+    private string _summaryDecision = "No summary decision yet.";
     private Brush _checkPercentBrush = Brushes.Black;
     private Brush _callPercentBrush = Brushes.Black;
     private Brush _foldPercentBrush = Brushes.Black;
@@ -172,6 +173,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set
         {
             _betRecommendation = value;
+            OnPropertyChanged();
+        }
+    }
+
+
+    public string SummaryDecision
+    {
+        get => _summaryDecision;
+        private set
+        {
+            _summaryDecision = value;
             OnPropertyChanged();
         }
     }
@@ -384,6 +396,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             BetPercent = 0;
             BetSizeBb = 0;
             BetRecommendation = "0%";
+            SummaryDecision = "No summary decision yet.";
             CheckPercentBrush = Brushes.Black;
             CallPercentBrush = Brushes.Black;
             FoldPercentBrush = Brushes.Black;
@@ -399,6 +412,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BetRecommendation = BetPercent > 0
             ? $"{BetPercent}% ({BetSizeBb:0.##} BB)"
             : $"{BetPercent}%";
+
+        SummaryDecision = string.IsNullOrWhiteSpace(actionMix.SummaryDecision)
+            ? "No summary decision returned."
+            : actionMix.SummaryDecision;
 
         LastPayloadJson = JsonSerializer.Serialize(actionMix, new JsonSerializerOptions { WriteIndented = true });
 

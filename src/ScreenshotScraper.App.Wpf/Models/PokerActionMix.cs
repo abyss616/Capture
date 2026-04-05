@@ -18,4 +18,7 @@ public sealed class PokerActionMix
 
     [JsonPropertyName("bet_size_bb")]
     public decimal BetSizeBb { get; set; }
+
+    [JsonPropertyName("summary_decision")]
+    public string SummaryDecision { get; set; } = string.Empty;
 }

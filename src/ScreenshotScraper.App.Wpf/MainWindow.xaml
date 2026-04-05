@@ -298,6 +298,8 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="8" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -328,6 +330,12 @@
                            Text="{Binding BetRecommendation}"
                            Foreground="{Binding BetPercentBrush}"
                            FontWeight="Bold" />
+
+
+                <TextBlock Grid.Row="8" Grid.Column="0" Text="Decision:" FontWeight="SemiBold" VerticalAlignment="Top" />
+                <TextBlock Grid.Row="8" Grid.Column="2"
+                           Text="{Binding SummaryDecision}"
+                           TextWrapping="Wrap" />
             </Grid>
         </GroupBox>
 

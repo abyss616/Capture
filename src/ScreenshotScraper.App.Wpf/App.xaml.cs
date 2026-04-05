@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using ScreenshotScraper.App.Wpf.Services;
 using ScreenshotScraper.App.Wpf.ViewModels;
 using ScreenshotScraper.Capture;
 using ScreenshotScraper.Core.Interfaces;
@@ -68,6 +69,7 @@ public partial class App : Application
         services.AddSingleton<IProcessingWorkflowService, ProcessingWorkflowService>();
         services.AddSingleton<IPreHeroHandHistoryXmlWorkflow, PreHeroHandHistoryXmlWorkflow>();
 
+        services.AddSingleton<ManualSnapshotService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
     }

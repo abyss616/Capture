@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using OpenCvSharp;
 using ScreenshotScraper.Extraction.HandHistory;
 using ScreenshotScraper.App.Wpf.Helpers;
+using ScreenshotScraper.App.Wpf.Services;
 using ScreenshotScraper.Core.Interfaces;
 using ScreenshotScraper.Core.Interfaces.HandHistory;
 using ScreenshotScraper.Core.Models;
@@ -22,6 +23,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly IScreenshotService _screenshotService;
     private readonly IPreHeroHandHistoryXmlWorkflow _preHeroHandHistoryXmlWorkflow;
+    private readonly ManualSnapshotService _manualSnapshotService;
 
     private BitmapImage? _previewImage;
     private string _previewStatus = "No screenshot captured yet.";
@@ -31,13 +33,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private CapturedImage? _capturedImage;
     private string _seatRoiStatus = "Seat ROI debug is shown after a capture or screenshot upload.";
     private string _heroCardOcrInputStatus = "Run XML to load the two exact hero-card OCR input images (left/right rank crops).";
+    private string _lastPayloadJson = "No manual snapshot sent yet.";
 
     public MainViewModel(
         IScreenshotService screenshotService,
-        IPreHeroHandHistoryXmlWorkflow preHeroHandHistoryXmlWorkflow)
+        IPreHeroHandHistoryXmlWorkflow preHeroHandHistoryXmlWorkflow,
+        ManualSnapshotService manualSnapshotService)
     {
         _screenshotService = screenshotService;
         _preHeroHandHistoryXmlWorkflow = preHeroHandHistoryXmlWorkflow;
+        _manualSnapshotService = manualSnapshotService;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -88,6 +93,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+
+
+    public string LastPayloadJson
+    {
+        get => _lastPayloadJson;
+        private set
+        {
+            _lastPayloadJson = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string SeatRoiStatus
     {
@@ -197,6 +213,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var workflowResult = await _preHeroHandHistoryXmlWorkflow.RunAsync(_capturedImage, cancellationToken).ConfigureAwait(true);
         ApplyWorkflowResult(workflowResult);
+    }
+
+
+    public async Task SendSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _manualSnapshotService.SendSnapshotAsync(cancellationToken).ConfigureAwait(true);
+
+            _capturedImage = result.Capture;
+            SetPreview(result.Capture);
+            CaptureMetadata = BuildMetadataSummary(result.Capture);
+            StatusMessage = result.StatusMessage;
+            LastPayloadJson = result.Payload is null
+                ? "No payload sent."
+                : JsonSerializer.Serialize(result.Payload, new JsonSerializerOptions { WriteIndented = true });
+
+            BuildSeatRoiDebugArtifacts(result.Capture);
+            BuildHeroCardOcrInputPreview(result.Capture);
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"Manual snapshot failed: {exception.Message}";
+            LastPayloadJson = exception.ToString();
+        }
     }
 
     private void ApplyWorkflowResult(PreHeroHandHistoryXmlWorkflowResult workflowResult)

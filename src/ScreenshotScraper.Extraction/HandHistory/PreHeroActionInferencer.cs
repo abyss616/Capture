@@ -19,7 +19,9 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 No = 1,
                 Player = smallBlind.Name,
                 Type = SnapshotActionType.SmallBlindPost,
-                Sum = smallBlind.Bet ?? string.Empty
+                Sum = smallBlind.Bet ?? string.Empty,
+                Discard = true,
+                Dealt = true
             });
         }
 
@@ -30,7 +32,9 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 No = 2,
                 Player = bigBlind.Name,
                 Type = SnapshotActionType.BigBlindPost,
-                Sum = bigBlind.Bet ?? string.Empty
+                Sum = bigBlind.Bet ?? string.Empty,
+                Discard = true,
+                Dealt = true
             });
         }
 
@@ -57,7 +61,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
             {
                 No = actionNumber++,
                 Player = player.Name,
-                Type = 0,
+                Type = SnapshotActionType.Fold,
                 Sum = string.Empty
             });
         }

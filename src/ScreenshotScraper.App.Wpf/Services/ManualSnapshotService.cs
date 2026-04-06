@@ -144,7 +144,9 @@ public sealed class ManualSnapshotService
             model = "claude-sonnet-4-20250514",
             max_tokens = 1000,
             system = """
-You are a poker decision engine for No-Limit Hold'em.
+You are a poker decision engine for No-Limit Hold'em. 
+Greyed out players are not in the hand. 
+Carefully read hero cards
 Analyze the screenshot and return only JSON with:
 - check_percent
 - call_percent  

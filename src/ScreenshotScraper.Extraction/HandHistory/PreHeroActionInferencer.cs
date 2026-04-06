@@ -5,21 +5,38 @@ namespace ScreenshotScraper.Extraction.HandHistory;
 
 public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
 {
+    private const decimal SmallBlindAmount = 0.5m;
+    private const decimal BigBlindAmount = 1.0m;
+
     public (IReadOnlyList<SnapshotAction> Round0Actions, IReadOnlyList<SnapshotAction> Round1Actions) Infer(IReadOnlyList<SnapshotPlayer> players)
     {
-        var round0Actions = new List<SnapshotAction>();
-        var round1Actions = new List<SnapshotAction>();
-
         var (smallBlind, bigBlind) = ResolveBlindPlayersByBetSize(players);
+        var round0Actions = BuildRound0Actions(smallBlind, bigBlind);
+
+        var hero = players.FirstOrDefault(player => player.IsHero);
+        if (hero is null || string.IsNullOrWhiteSpace(hero.Position))
+        {
+            return (round0Actions, []);
+        }
+
+        var round1Actions = InferRound1Actions(players, hero, smallBlind, bigBlind, round0Actions.Count + 1);
+
+        return (round0Actions, round1Actions);
+    }
+
+    private static List<SnapshotAction> BuildRound0Actions(SnapshotPlayer? smallBlind, SnapshotPlayer? bigBlind)
+    {
+        var actions = new List<SnapshotAction>();
+        var nextNo = 1;
 
         if (smallBlind is not null)
         {
-            round0Actions.Add(new SnapshotAction
+            actions.Add(new SnapshotAction
             {
-                No = 1,
+                No = nextNo++,
                 Player = smallBlind.Name,
                 Type = SnapshotActionType.SmallBlindPost,
-                Sum = smallBlind.Bet ?? string.Empty,
+                Sum = SmallBlindAmount.ToString(CultureInfo.InvariantCulture),
                 Discard = true,
                 Dealt = true
             });
@@ -27,24 +44,43 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
 
         if (bigBlind is not null)
         {
-            round0Actions.Add(new SnapshotAction
+            actions.Add(new SnapshotAction
             {
-                No = 2,
+                No = nextNo++,
                 Player = bigBlind.Name,
                 Type = SnapshotActionType.BigBlindPost,
-                Sum = bigBlind.Bet ?? string.Empty,
+                Sum = BigBlindAmount.ToString(CultureInfo.InvariantCulture),
                 Discard = true,
                 Dealt = true
             });
         }
 
-        var hero = players.FirstOrDefault(player => player.IsHero);
-        if (hero is null || string.IsNullOrWhiteSpace(hero.Position))
+        return actions;
+    }
+
+    private static List<SnapshotAction> InferRound1Actions(
+        IReadOnlyList<SnapshotPlayer> players,
+        SnapshotPlayer hero,
+        SnapshotPlayer? smallBlind,
+        SnapshotPlayer? bigBlind,
+        int startingActionNo)
+    {
+        var actions = new List<SnapshotAction>();
+        var committedBySeat = players.ToDictionary(player => player.Seat, _ => 0m);
+
+        if (smallBlind is not null)
         {
-            return (round0Actions, round1Actions);
+            committedBySeat[smallBlind.Seat] = SmallBlindAmount;
         }
 
-        var actionNumber = 1;
+        if (bigBlind is not null)
+        {
+            committedBySeat[bigBlind.Seat] = BigBlindAmount;
+        }
+
+        var currentPrice = BigBlindAmount;
+        var actionNo = startingActionNo;
+
         foreach (var player in SixMaxPositionMapper.OrderPreflopActors(players).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
         {
             if (player.Seat == hero.Seat)
@@ -52,21 +88,60 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                 break;
             }
 
-            if (!player.AppearsFolded)
+            var alreadyCommitted = committedBySeat[player.Seat];
+            if (player.AppearsFolded)
             {
+                actions.Add(new SnapshotAction
+                {
+                    No = actionNo++,
+                    Player = player.Name,
+                    Type = SnapshotActionType.Fold,
+                    Sum = "0"
+                });
                 continue;
             }
 
-            round1Actions.Add(new SnapshotAction
+            var finalCommitted = ParseBetSize(player.Bet);
+            if (finalCommitted == alreadyCommitted && alreadyCommitted == currentPrice)
             {
-                No = actionNumber++,
-                Player = player.Name,
-                Type = SnapshotActionType.Fold,
-                Sum = string.Empty
-            });
+                actions.Add(new SnapshotAction
+                {
+                    No = actionNo++,
+                    Player = player.Name,
+                    Type = SnapshotActionType.Check,
+                    Sum = "0"
+                });
+                continue;
+            }
+
+            if (finalCommitted > alreadyCommitted && finalCommitted == currentPrice)
+            {
+                actions.Add(new SnapshotAction
+                {
+                    No = actionNo++,
+                    Player = player.Name,
+                    Type = SnapshotActionType.Call,
+                    Sum = (finalCommitted - alreadyCommitted).ToString(CultureInfo.InvariantCulture)
+                });
+                committedBySeat[player.Seat] = finalCommitted;
+                continue;
+            }
+
+            if (finalCommitted > currentPrice)
+            {
+                actions.Add(new SnapshotAction
+                {
+                    No = actionNo++,
+                    Player = player.Name,
+                    Type = SnapshotActionType.BetRaiseAllIn,
+                    Sum = (finalCommitted - alreadyCommitted).ToString(CultureInfo.InvariantCulture)
+                });
+                committedBySeat[player.Seat] = finalCommitted;
+                currentPrice = finalCommitted;
+            }
         }
 
-        return (round0Actions, round1Actions);
+        return actions;
     }
 
     private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)
@@ -95,5 +170,13 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         }
 
         return (smallBlind, bigBlind);
+    }
+
+    private static decimal ParseBetSize(string? bet)
+    {
+        var parsed = SeatLocalTextParser.ParseNumber(bet);
+        return decimal.TryParse(parsed, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount)
+            ? amount
+            : 0m;
     }
 }

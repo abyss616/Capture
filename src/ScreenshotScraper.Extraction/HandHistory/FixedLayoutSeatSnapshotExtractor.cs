@@ -63,7 +63,6 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
             Cashout = string.Empty,
             CashoutFee = string.Empty,
             RakeAmount = string.Empty,
-            Position = seatTemplate.Position,
             AppearsFolded = FoldRegex().IsMatch(seatText),
             HasVisibleCards = seatTemplate.HasVisibleCards
         };
@@ -175,12 +174,12 @@ public sealed partial class FixedLayoutSeatSnapshotExtractor : ISeatSnapshotExtr
     {
         return
         [
-            new SnapshotPlayer { Seat = 1, IsHero = true, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = true },
-            new SnapshotPlayer { Seat = 2, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = false },
-            new SnapshotPlayer { Seat = 3, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = false },
-            new SnapshotPlayer { Seat = 4, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = false },
-            new SnapshotPlayer { Seat = 5, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = false },
-            new SnapshotPlayer { Seat = 6, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, Position = string.Empty, AppearsFolded = false, HasVisibleCards = false }
+            new SnapshotPlayer { Seat = 1, IsHero = true, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = true },
+            new SnapshotPlayer { Seat = 2, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = false },
+            new SnapshotPlayer { Seat = 3, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = false },
+            new SnapshotPlayer { Seat = 4, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = false },
+            new SnapshotPlayer { Seat = 5, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = false },
+            new SnapshotPlayer { Seat = 6, IsHero = false, Name = string.Empty, Chips = string.Empty, Dealer = false, Bet = string.Empty, Win = string.Empty, Muck = string.Empty, Cashout = string.Empty, CashoutFee = string.Empty, RakeAmount = string.Empty, AppearsFolded = false, HasVisibleCards = false }
         ];
     }
 

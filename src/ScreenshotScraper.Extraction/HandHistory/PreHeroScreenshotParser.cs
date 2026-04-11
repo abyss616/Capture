@@ -669,26 +669,47 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             return false;
         }
 
-        using var hsv = new Mat();
-        Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
-
-        // Folded seats render name text in muted gray (low saturation) while active seats stay
-        // cyan/white and therefore contain more colored pixels.
-        using var mutedMask = new Mat();
-        Cv2.InRange(hsv, new Scalar(0, 0, 65), new Scalar(179, 45, 255), mutedMask);
-
-        using var activeColorMask = new Mat();
-        Cv2.InRange(hsv, new Scalar(70, 60, 65), new Scalar(130, 255, 255), activeColorMask);
-
-        var pixelCount = roi.Rows * roi.Cols;
-        if (pixelCount <= 0)
+        var focus = new OpenCvSharp.Rect(
+            x: Math.Max(0, (int)(roi.Cols * 0.18)),
+            y: Math.Max(0, (int)(roi.Rows * 0.38)),
+            width: Math.Max(1, (int)(roi.Cols * 0.64)),
+            height: Math.Max(1, (int)(roi.Rows * 0.44)));
+        focus = focus.Intersect(new OpenCvSharp.Rect(0, 0, roi.Cols, roi.Rows));
+        if (focus.Width <= 0 || focus.Height <= 0)
         {
             return false;
         }
 
-        var mutedRatio = Cv2.CountNonZero(mutedMask) / (double)pixelCount;
-        var activeColorRatio = Cv2.CountNonZero(activeColorMask) / (double)pixelCount;
-        return mutedRatio >= 0.16 && activeColorRatio <= 0.08;
+        using var focusRoi = new Mat(roi, focus);
+        using var hsv = new Mat();
+        Cv2.CvtColor(focusRoi, hsv, ColorConversionCodes.BGR2HSV);
+
+        // Target the text-like bright pixels in the center/lower name panel to avoid VIP/AF
+        // labels and decorative cyan accents in the full name ROI.
+        using var textCandidateMask = new Mat();
+        Cv2.InRange(hsv, new Scalar(0, 0, 95), new Scalar(179, 160, 255), textCandidateMask);
+
+        using var mutedMask = new Mat();
+        Cv2.InRange(hsv, new Scalar(0, 0, 95), new Scalar(179, 55, 255), mutedMask);
+
+        using var activeColorMask = new Mat();
+        Cv2.InRange(hsv, new Scalar(75, 70, 95), new Scalar(130, 255, 255), activeColorMask);
+
+        using var mutedTextMask = new Mat();
+        Cv2.BitwiseAnd(mutedMask, textCandidateMask, mutedTextMask);
+
+        using var activeTextMask = new Mat();
+        Cv2.BitwiseAnd(activeColorMask, textCandidateMask, activeTextMask);
+
+        var textPixels = Cv2.CountNonZero(textCandidateMask);
+        if (textPixels <= 20)
+        {
+            return false;
+        }
+
+        var mutedRatio = Cv2.CountNonZero(mutedTextMask) / (double)textPixels;
+        var activeColorRatio = Cv2.CountNonZero(activeTextMask) / (double)textPixels;
+        return mutedRatio >= 0.55 && activeColorRatio <= 0.30;
     }
 
     private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, Cards? heroCards)

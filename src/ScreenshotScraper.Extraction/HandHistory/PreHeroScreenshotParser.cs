@@ -416,17 +416,18 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             }
             var chips = SeatLocalTextParser.ParseNumber(stackRead.OcrText);
             var bet = SeatLocalTextParser.ParseNumber(betRead.OcrText);
+            var appearsFolded = DetectFoldedSeatFromNameRoi(nameRead.Raw);
 
             var nameRejection = IsReliableNonHeroName(name) || seat.Seat == HeroSeatIndex ? string.Empty : "name rejected by reliability filter";
             var stackRejection = chips.Length == 0 && !string.IsNullOrWhiteSpace(stackRead.OcrText) ? "numeric parse failed" : string.Empty;
             var betRejection = bet.Length == 0 && !string.IsNullOrWhiteSpace(betRead.OcrText) ? "numeric parse failed" : string.Empty;
 
-            diagnostics.Add($"Seat {seat.Seat}: occupied={isOccupied}; full={FormatRect(seatFullBounds)}; name={FormatRect(seat.NameRoi)} variant={nameRead.VariantUsed} backend={nameRead.OcrResult.Backend} conf={FormatConfidence(nameRead.OcrResult.Confidence)} raw='{Sanitize(nameRead.OcrText)}' parsed='{name}' reject='{nameRejection}'; stack={FormatRect(seat.StackRoi)} variant={stackRead.VariantUsed} backend={stackRead.OcrResult.Backend} conf={FormatConfidence(stackRead.OcrResult.Confidence)} raw='{Sanitize(stackRead.OcrText)}' parsed='{chips}' reject='{stackRejection}'; bet={FormatRect(seat.BetRoi)} variant={betRead.VariantUsed} backend={betRead.OcrResult.Backend} conf={FormatConfidence(betRead.OcrResult.Confidence)} raw='{Sanitize(betRead.OcrText)}' parsed='{bet}' reject='{betRejection}'");
+            diagnostics.Add($"Seat {seat.Seat}: occupied={isOccupied}; folded={appearsFolded}; full={FormatRect(seatFullBounds)}; name={FormatRect(seat.NameRoi)} variant={nameRead.VariantUsed} backend={nameRead.OcrResult.Backend} conf={FormatConfidence(nameRead.OcrResult.Confidence)} raw='{Sanitize(nameRead.OcrText)}' parsed='{name}' reject='{nameRejection}'; stack={FormatRect(seat.StackRoi)} variant={stackRead.VariantUsed} backend={stackRead.OcrResult.Backend} conf={FormatConfidence(stackRead.OcrResult.Confidence)} raw='{Sanitize(stackRead.OcrText)}' parsed='{chips}' reject='{stackRejection}'; bet={FormatRect(seat.BetRoi)} variant={betRead.VariantUsed} backend={betRead.OcrResult.Backend} conf={FormatConfidence(betRead.OcrResult.Confidence)} raw='{Sanitize(betRead.OcrText)}' parsed='{bet}' reject='{betRejection}'");
             diagnostics.Add($"  name variants: {FormatVariantDiagnostics(nameRead.Attempts)}");
             diagnostics.Add($"  stack variants: {FormatVariantDiagnostics(stackRead.Attempts)}");
             diagnostics.Add($"  bet variants: {FormatVariantDiagnostics(betRead.Attempts)}");
 
-            Debug.WriteLine($"[SeatLocalOCR] seat={seat.Seat}; occupied={isOccupied}; full={FormatRect(seatFullBounds)}; nameRoi={FormatRect(seat.NameRoi)}; stackRoi={FormatRect(seat.StackRoi)}; betRoi={FormatRect(seat.BetRoi)}; nameVariant={nameRead.VariantUsed}; stackVariant={stackRead.VariantUsed}; betVariant={betRead.VariantUsed}; nameBackend={nameRead.OcrResult.Backend}; stackBackend={stackRead.OcrResult.Backend}; betBackend={betRead.OcrResult.Backend}; nameConf={FormatConfidence(nameRead.OcrResult.Confidence)}; stackConf={FormatConfidence(stackRead.OcrResult.Confidence)}; betConf={FormatConfidence(betRead.OcrResult.Confidence)}; nameElapsedMs={nameRead.OcrResult.ElapsedMilliseconds ?? 0}; stackElapsedMs={stackRead.OcrResult.ElapsedMilliseconds ?? 0}; betElapsedMs={betRead.OcrResult.ElapsedMilliseconds ?? 0}; nameRaw='{Sanitize(nameRead.OcrText)}'; stackRaw='{Sanitize(stackRead.OcrText)}'; betRaw='{Sanitize(betRead.OcrText)}'; parsedName='{name}'; parsedStack='{chips}'; parsedBet='{bet}'; nameReject='{nameRejection}'; stackReject='{stackRejection}'; betReject='{betRejection}'");
+            Debug.WriteLine($"[SeatLocalOCR] seat={seat.Seat}; occupied={isOccupied}; folded={appearsFolded}; full={FormatRect(seatFullBounds)}; nameRoi={FormatRect(seat.NameRoi)}; stackRoi={FormatRect(seat.StackRoi)}; betRoi={FormatRect(seat.BetRoi)}; nameVariant={nameRead.VariantUsed}; stackVariant={stackRead.VariantUsed}; betVariant={betRead.VariantUsed}; nameBackend={nameRead.OcrResult.Backend}; stackBackend={stackRead.OcrResult.Backend}; betBackend={betRead.OcrResult.Backend}; nameConf={FormatConfidence(nameRead.OcrResult.Confidence)}; stackConf={FormatConfidence(stackRead.OcrResult.Confidence)}; betConf={FormatConfidence(betRead.OcrResult.Confidence)}; nameElapsedMs={nameRead.OcrResult.ElapsedMilliseconds ?? 0}; stackElapsedMs={stackRead.OcrResult.ElapsedMilliseconds ?? 0}; betElapsedMs={betRead.OcrResult.ElapsedMilliseconds ?? 0}; nameRaw='{Sanitize(nameRead.OcrText)}'; stackRaw='{Sanitize(stackRead.OcrText)}'; betRaw='{Sanitize(betRead.OcrText)}'; parsedName='{name}'; parsedStack='{chips}'; parsedBet='{bet}'; nameReject='{nameRejection}'; stackReject='{stackRejection}'; betReject='{betRejection}'");
 
             players.Add(new SnapshotPlayer
             {
@@ -441,7 +442,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 Cashout = string.Empty,
                 CashoutFee = string.Empty,
                 RakeAmount = string.Empty,
-                AppearsFolded = false,
+                AppearsFolded = appearsFolded,
                 HasVisibleCards = false
             });
 
@@ -653,6 +654,41 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         var attemptScore = ScoreAttempt(roiType, attempt.OcrResult);
         var selectedScore = ScoreAttempt(roiType, selected.OcrResult);
         return $"score={attemptScore:0.000} below selected={selectedScore:0.000}";
+    }
+
+    private static bool DetectFoldedSeatFromNameRoi(CapturedImage nameRoi)
+    {
+        if (nameRoi.ImageBytes.Length == 0)
+        {
+            return false;
+        }
+
+        using var roi = Cv2.ImDecode(nameRoi.ImageBytes, ImreadModes.Color);
+        if (roi.Empty())
+        {
+            return false;
+        }
+
+        using var hsv = new Mat();
+        Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
+
+        // Folded seats render name text in muted gray (low saturation) while active seats stay
+        // cyan/white and therefore contain more colored pixels.
+        using var mutedMask = new Mat();
+        Cv2.InRange(hsv, new Scalar(0, 0, 65), new Scalar(179, 45, 255), mutedMask);
+
+        using var activeColorMask = new Mat();
+        Cv2.InRange(hsv, new Scalar(70, 60, 65), new Scalar(130, 255, 255), activeColorMask);
+
+        var pixelCount = roi.Rows * roi.Cols;
+        if (pixelCount <= 0)
+        {
+            return false;
+        }
+
+        var mutedRatio = Cv2.CountNonZero(mutedMask) / (double)pixelCount;
+        var activeColorRatio = Cv2.CountNonZero(activeColorMask) / (double)pixelCount;
+        return mutedRatio >= 0.16 && activeColorRatio <= 0.08;
     }
 
     private static int? DetectHeroSeat(IReadOnlyList<SnapshotPlayer> players, Cards? heroCards)

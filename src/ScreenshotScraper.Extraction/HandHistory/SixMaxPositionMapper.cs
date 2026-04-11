@@ -3,65 +3,56 @@ using ScreenshotScraper.Core.Models.HandHistory;
 namespace ScreenshotScraper.Extraction.HandHistory;
 
 /// <summary>
-/// Stable seat numbering for the visible 6-max layout:
-/// 1=bottom-center(hero), 2=bottom-left, 3=top-left, 4=top-center, 5=top-right, 6=bottom-right.
-/// Clockwise table order follows the same numeric order.
+/// Maps occupied seats into dealer-relative six-max order.
+/// Position indexes are numeric only:
+/// dealer=4, small blind=5, big blind=6, then preceding seats=3,2,1.
 /// </summary>
 public static class SixMaxPositionMapper
 {
-    private static readonly string[] PositionOrder = ["BTN", "SB", "BB", "UTG", "HJ", "CO"];
-    private static readonly string[] PreflopActionOrder = ["UTG", "HJ", "CO", "BTN", "SB", "BB"];
-
-    public static IReadOnlyList<SnapshotPlayer> AssignPositions(IReadOnlyList<SnapshotPlayer> players)
-    {
-        var dealerSeat = players.FirstOrDefault(player => player.Dealer)?.Seat;
-        if (dealerSeat is null)
-        {
-            return players;
-        }
-
-        var mappedPlayers = new List<SnapshotPlayer>(players.Count);
-        foreach (var player in players)
-        {
-            var offset = GetClockwiseDistance(dealerSeat.Value, player.Seat);
-            var position = offset >= 0 && offset < PositionOrder.Length ? PositionOrder[offset] : string.Empty;
-            mappedPlayers.Add(Clone(player, position));
-        }
-
-        return mappedPlayers;
-    }
-
     public static IReadOnlyList<SnapshotPlayer> OrderPreflopActors(IReadOnlyList<SnapshotPlayer> players)
     {
+        var dealerSeat = players.FirstOrDefault(player => player.Dealer)?.Seat;
+        if (!dealerSeat.HasValue)
+        {
+            return players.OrderBy(player => player.Seat).ToList();
+        }
+
         return players
-            .OrderBy(player => Array.IndexOf(PreflopActionOrder, player.Position ?? string.Empty))
+            .OrderBy(player => GetPreflopActionRank(dealerSeat.Value, player.Seat))
             .ThenBy(player => player.Seat)
             .ToList();
+    }
+
+    public static IReadOnlyList<SnapshotPlayer> OrderDealerFirst(IReadOnlyList<SnapshotPlayer> players, int? dealerSeat)
+    {
+        if (!dealerSeat.HasValue)
+        {
+            return players.OrderBy(player => player.Seat).ToList();
+        }
+
+        return players
+            .OrderBy(player => GetClockwiseDistance(dealerSeat.Value, player.Seat))
+            .ThenBy(player => player.Seat)
+            .ToList();
+    }
+
+    private static int GetPreflopActionRank(int dealerSeat, int seat)
+    {
+        var clockwiseDistance = GetClockwiseDistance(dealerSeat, seat);
+        return clockwiseDistance switch
+        {
+            3 => 0, // Position 1
+            4 => 1, // Position 2
+            5 => 2, // Position 3
+            0 => 3, // Position 4 (dealer)
+            1 => 4, // Position 5 (small blind)
+            2 => 5, // Position 6 (big blind)
+            _ => int.MaxValue
+        };
     }
 
     private static int GetClockwiseDistance(int dealerSeat, int targetSeat)
     {
         return (targetSeat - dealerSeat + 6) % 6;
-    }
-
-    private static SnapshotPlayer Clone(SnapshotPlayer player, string position)
-    {
-        return new SnapshotPlayer
-        {
-            Seat = player.Seat,
-            Name = player.Name,
-            Chips = player.Chips,
-            Dealer = player.Dealer,
-            Bet = player.Bet,
-            Win = player.Win,
-            Muck = player.Muck,
-            Cashout = player.Cashout,
-            CashoutFee = player.CashoutFee,
-            RakeAmount = player.RakeAmount,
-            Position = position,
-            IsHero = player.IsHero,
-            AppearsFolded = player.AppearsFolded,
-            HasVisibleCards = player.HasVisibleCards
-        };
     }
 }

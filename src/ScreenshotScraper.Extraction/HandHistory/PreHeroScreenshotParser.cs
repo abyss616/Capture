@@ -143,7 +143,7 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
             IsValid = false,
             Error = "Hero position assignment is deferred.",
             Confidence = 0,
-            Reason = "Position assignment (BTN/SB/BB/UTG/HJ/CO) is intentionally deferred until occupied-seat and dealer-snapshot validation is complete."
+            Reason = "Dealer-relative position ordering is intentionally deferred until occupied-seat and dealer-snapshot validation is complete."
         };
     }
 
@@ -212,7 +212,6 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                     Cashout = extracted?.Cashout ?? string.Empty,
                     CashoutFee = extracted?.CashoutFee ?? string.Empty,
                     RakeAmount = extracted?.RakeAmount ?? string.Empty,
-                    Position = string.Empty,
                     IsHero = isHero,
                     AppearsFolded = extracted?.AppearsFolded ?? false,
                     HasVisibleCards = isHero && heroCards?.IsComplete == true
@@ -277,7 +276,6 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 Cashout = ChoosePreferredText(global?.Cashout, local?.Cashout),
                 CashoutFee = ChoosePreferredText(global?.CashoutFee, local?.CashoutFee),
                 RakeAmount = ChoosePreferredText(global?.RakeAmount, local?.RakeAmount),
-                Position = ChoosePreferredText(global?.Position, local?.Position),
                 AppearsFolded = (global?.AppearsFolded ?? false) || (local?.AppearsFolded ?? false),
                 HasVisibleCards = (global?.HasVisibleCards ?? false) || (local?.HasVisibleCards ?? false),
                 Dealer = (global?.Dealer ?? false) || (local?.Dealer ?? false),
@@ -443,7 +441,6 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
                 Cashout = string.Empty,
                 CashoutFee = string.Empty,
                 RakeAmount = string.Empty,
-                Position = string.Empty,
                 AppearsFolded = false,
                 HasVisibleCards = false
             });

@@ -22,8 +22,6 @@ public sealed class SnapshotPlayer
 
     public string? RakeAmount { get; init; }
 
-    public string? Position { get; init; }
-
     public bool IsHero { get; init; }
 
     public bool AppearsFolded { get; init; }

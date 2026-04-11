@@ -74,9 +74,24 @@ public sealed class XmlBuilder : IXmlBuilder
         }
 
         return players
-            .OrderBy(player => (player.Seat - dealerSeat.Value + 6) % 6)
+            .OrderBy(player => GetDealerRelativePositionOrder(player.Seat, dealerSeat.Value))
             .ThenBy(player => player.Seat)
             .ToList();
+    }
+
+    private static int GetDealerRelativePositionOrder(int seat, int dealerSeat)
+    {
+        var clockwiseDistance = (seat - dealerSeat + 6) % 6;
+        return clockwiseDistance switch
+        {
+            3 => 1, // Position 1
+            4 => 2, // Position 2
+            5 => 3, // Position 3
+            0 => 4, // Position 4 (Dealer)
+            1 => 5, // Position 5 (SB)
+            2 => 6, // Position 6 (BB)
+            _ => int.MaxValue
+        };
     }
 
     private static int? TryGetDetectedDealerSeat(PartialHandHistorySnapshot snapshot)

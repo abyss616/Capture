@@ -146,6 +146,16 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
 
     private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)
     {
+        var dealer = players.FirstOrDefault(player => player.Dealer);
+        if (dealer is not null)
+        {
+            var clockwiseFromDealer = SixMaxPositionMapper.OrderDealerFirst(players, dealer.Seat);
+            if (clockwiseFromDealer.Count >= 3)
+            {
+                return (clockwiseFromDealer[1], clockwiseFromDealer[2]);
+            }
+        }
+
         SnapshotPlayer? smallBlind = null;
         SnapshotPlayer? bigBlind = null;
 

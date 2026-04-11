@@ -670,10 +670,10 @@ public sealed class PreHeroScreenshotParser : IPreHeroScreenshotParser
         }
 
         var focus = new OpenCvSharp.Rect(
-            x: Math.Max(0, (int)(roi.Cols * 0.18)),
-            y: Math.Max(0, (int)(roi.Rows * 0.38)),
-            width: Math.Max(1, (int)(roi.Cols * 0.64)),
-            height: Math.Max(1, (int)(roi.Rows * 0.44)));
+            Math.Max(0, (int)(roi.Cols * 0.18)),
+             Math.Max(0, (int)(roi.Rows * 0.38)),
+             Math.Max(1, (int)(roi.Cols * 0.64)),
+             Math.Max(1, (int)(roi.Rows * 0.44)));
         focus = focus.Intersect(new OpenCvSharp.Rect(0, 0, roi.Cols, roi.Rows));
         if (focus.Width <= 0 || focus.Height <= 0)
         {

@@ -121,7 +121,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                     No = actionNo++,
                     Player = player.Name,
                     Type = SnapshotActionType.Call,
-                    Sum = (finalCommitted - alreadyCommitted).ToString(CultureInfo.InvariantCulture)
+                    Sum = FormatWagerAmount(finalCommitted - alreadyCommitted)
                 });
                 committedBySeat[player.Seat] = finalCommitted;
                 continue;
@@ -134,7 +134,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
                     No = actionNo++,
                     Player = player.Name,
                     Type = SnapshotActionType.BetRaiseAllIn,
-                    Sum = (finalCommitted - alreadyCommitted).ToString(CultureInfo.InvariantCulture)
+                    Sum = FormatWagerAmount(finalCommitted - alreadyCommitted)
                 });
                 committedBySeat[player.Seat] = finalCommitted;
                 currentPrice = finalCommitted;
@@ -146,6 +146,16 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
 
     private static (SnapshotPlayer? SmallBlind, SnapshotPlayer? BigBlind) ResolveBlindPlayersByBetSize(IReadOnlyList<SnapshotPlayer> players)
     {
+        var dealer = players.FirstOrDefault(player => player.Dealer);
+        if (dealer is not null)
+        {
+            var clockwiseFromDealer = SixMaxPositionMapper.OrderDealerFirst(players, dealer.Seat);
+            if (clockwiseFromDealer.Count >= 3)
+            {
+                return (clockwiseFromDealer[1], clockwiseFromDealer[2]);
+            }
+        }
+
         SnapshotPlayer? smallBlind = null;
         SnapshotPlayer? bigBlind = null;
 
@@ -178,5 +188,10 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         return decimal.TryParse(parsed, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount)
             ? amount
             : 0m;
+    }
+
+    private static string FormatWagerAmount(decimal amount)
+    {
+        return amount.ToString("0.0###", CultureInfo.InvariantCulture);
     }
 }

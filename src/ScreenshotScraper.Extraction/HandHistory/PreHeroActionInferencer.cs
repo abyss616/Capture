@@ -14,7 +14,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var round0Actions = BuildRound0Actions(smallBlind, bigBlind);
 
         var hero = players.FirstOrDefault(player => player.IsHero);
-        if (hero is null || string.IsNullOrWhiteSpace(hero.Position))
+        if (hero is null)
         {
             return (round0Actions, []);
         }
@@ -81,7 +81,7 @@ public sealed class PreHeroActionInferencer : IPreHeroActionInferencer
         var currentPrice = BigBlindAmount;
         var actionNo = startingActionNo;
 
-        foreach (var player in SixMaxPositionMapper.OrderPreflopActors(players).Where(player => !string.IsNullOrWhiteSpace(player.Position)))
+        foreach (var player in SixMaxPositionMapper.OrderPreflopActors(players))
         {
             if (player.Seat == hero.Seat)
             {

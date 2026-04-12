@@ -1,5 +1,7 @@
 using ScreenshotScraper.App.Wpf.Models;
 using ScreenshotScraper.Core.Interfaces;
+using ScreenshotScraper.Core.Interfaces.HandHistory;
+using ScreenshotScraper.Core.Models;
 using ScreenshotScraper.Core.Models.HandHistory;
 using ScreenshotScraper.Extraction.HandHistory;
 
@@ -10,21 +12,25 @@ public sealed class TableMonitorService
     private readonly IScreenshotService _screenshotService;
     private readonly ActionCornerDetector _actionCornerDetector;
     private readonly ITableVisionDetector _tableVisionDetector;
+    private readonly IPreHeroScreenshotParser _preHeroScreenshotParser;
     private readonly DummyTableEventClient _tableEventClient;
 
     private CancellationTokenSource? _runCts;
     private Task? _runTask;
     private int? _lastDealerSeat;
+    private string? _lastProcessedStateKey;
 
     public TableMonitorService(
         IScreenshotService screenshotService,
         ActionCornerDetector actionCornerDetector,
         ITableVisionDetector tableVisionDetector,
+        IPreHeroScreenshotParser preHeroScreenshotParser,
         DummyTableEventClient tableEventClient)
     {
         _screenshotService = screenshotService;
         _actionCornerDetector = actionCornerDetector;
         _tableVisionDetector = tableVisionDetector;
+        _preHeroScreenshotParser = preHeroScreenshotParser;
         _tableEventClient = tableEventClient;
     }
 
@@ -85,11 +91,11 @@ public sealed class TableMonitorService
         {
             var capture = await _screenshotService.CaptureAsync(cancellationToken).ConfigureAwait(false);
 
-            var hasCheckOrFold = await _actionCornerDetector.HasCheckOrFoldAsync(capture, cancellationToken).ConfigureAwait(false);
-            if (!hasCheckOrFold)
+            var hasCall = await _actionCornerDetector.HasCallAsync(capture, cancellationToken).ConfigureAwait(false);
+            if (!hasCall)
             {
                 return new TableMonitorTickEventArgs(
-                    "No CHECK/FOLD text in the right-bottom action area. Skipped.",
+                    "No CALL text in the right-bottom action area. Skipped.",
                     null,
                     null,
                     null);
@@ -101,15 +107,34 @@ public sealed class TableMonitorService
                 && currentDealerSeat.HasValue
                 && _lastDealerSeat.Value != currentDealerSeat.Value;
 
+            if (newGame)
+            {
+                _lastProcessedStateKey = null;
+            }
+
             if (currentDealerSeat.HasValue)
             {
                 _lastDealerSeat = currentDealerSeat.Value;
             }
 
+            var snapshot = await TryParseSnapshotAsync(capture, cancellationToken).ConfigureAwait(false);
+            var stateKey = SemanticHandStateKeyBuilder.Build(detection, snapshot);
+            if (string.Equals(stateKey, _lastProcessedStateKey, StringComparison.Ordinal))
+            {
+                return new TableMonitorTickEventArgs(
+                    "Same semantic hand state is still active. Skipped duplicate.",
+                    currentDealerSeat,
+                    newGame,
+                    null);
+            }
+
+            _lastProcessedStateKey = stateKey;
+
             var payload = new TableMonitorPayload
             {
                 Byte64 = [Convert.ToBase64String(capture.ImageBytes)],
-                NewGame = newGame
+                NewGame = newGame,
+                StateKey = stateKey
             };
 
             var endpointResult = await _tableEventClient.SendAsync(payload, cancellationToken).ConfigureAwait(false);
@@ -131,6 +156,18 @@ public sealed class TableMonitorService
                 null,
                 null,
                 null);
+        }
+    }
+
+    private async Task<PartialHandHistorySnapshot?> TryParseSnapshotAsync(CapturedImage capture, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _preHeroScreenshotParser.ParseAsync(capture, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
         }
     }
 }

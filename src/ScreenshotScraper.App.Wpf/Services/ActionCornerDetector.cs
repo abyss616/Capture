@@ -16,7 +16,7 @@ public sealed class ActionCornerDetector
         _ocrEngine = ocrEngine;
     }
 
-    public async Task<bool> HasCheckOrFoldAsync(CapturedImage image, CancellationToken cancellationToken = default)
+    public async Task<bool> HasCallAsync(CapturedImage image, CancellationToken cancellationToken = default)
     {
         var roiImage = CropRightBottomActionArea(image);
         if (roiImage.ImageBytes.Length == 0)
@@ -31,7 +31,6 @@ public sealed class ActionCornerDetector
 
         var normalized = Normalize(ocr.Text);
         return normalized.Contains("CALL", StringComparison.Ordinal);
-           
     }
 
     private static string Normalize(string value)
@@ -61,7 +60,7 @@ public sealed class ActionCornerDetector
         var crop = new Rect(
             (int)Math.Round(source.Width * 0.60),
             (int)Math.Round(source.Height * 0.84),
-             Math.Max(1, (int)Math.Round(source.Width * 0.39)),
+            Math.Max(1, (int)Math.Round(source.Width * 0.39)),
             Math.Max(1, (int)Math.Round(source.Height * 0.15)));
 
         crop = crop.Intersect(new Rect(0, 0, source.Width, source.Height));

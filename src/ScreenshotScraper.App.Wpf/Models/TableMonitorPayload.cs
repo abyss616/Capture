@@ -9,4 +9,7 @@ public sealed class TableMonitorPayload
 
     [JsonPropertyName("newGame")]
     public bool NewGame { get; init; }
+
+    [JsonPropertyName("stateKey")]
+    public string StateKey { get; init; } = string.Empty;
 }
